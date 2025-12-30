@@ -1,0 +1,193 @@
+# AI驱动的价格行为交易系统开发文档 (LLM-PriceAction-Bot)
+
+## 1. 项目概述
+
+本项目旨在构建一个基于 **Al Brooks 价格行为学 (Price Action)** 的自动化交易程序。系统利用 **DeepSeek API** (或其他兼容 OpenAI 格式的大模型) 具备的图表理解与逻辑推理能力，结合传统的量化交易框架，实现 **15分钟级别** 的日内波段/剥头皮交易。
+
+### 核心理念
+- **简单至上**: 保持代码逻辑清晰，避免过度工程化。
+- **高扩展性**: 模块化设计，轻松适配不同交易所或LLM模型。
+- **安全第一**: 严格的风险控制（单笔风险限制）与防御性编程。
+
+## 2. 技术栈
+
+- **运行环境**: Node.js (LTS版本)
+- **开发语言**: TypeScript
+- **交易所接口**: CCXT (Bitget API, 支持切换实盘/模拟)
+- **AI 交互**: OpenAI SDK (配置 DeepSeek 端点)
+- **配置管理**: `dotenv` (.env) + `toml` (config.toml)
+- **辅助工具**: ASCII Chart 生成库 (用于将K线转化为字符画)
+
+## 3. 系统架构
+
+系统采用 **事件驱动 + 轮询** 的混合架构，主要包含以下模块：
+
+1.  **Market Data Manager (行情管理器)**: 负责多交易对的K线数据获取与维护。
+2.  **LLM Brain (大脑)**: 负责构造Prompt（包含OHLC数据 + ASCII图表），发送请求并解析JSON信号。
+3.  **Trade Executor (交易执行器)**: 负责订单路由、突破单挂单、市价单兜底、止盈止损挂单。
+4.  **Position Monitor (持仓监控)**: 负责WebSocket状态监听，管理生命周期。
+5.  **Config Loader (配置加载器)**: 处理环境与策略配置。
+
+## 4. 核心业务流程 ("沃尔玛交易法")
+
+程序对每个配置的交易对（Symbol）并行运行以下状态机循环：
+
+### 阶段一：信号搜寻 (No Position)
+1.  **数据同步**: 每根 **15分钟K线收盘** 时，通过 CCXT 获取最新 OHLC 数据。
+2.  **上下文构建**:
+    -   提取过去 N 根K线数据。
+    -   **关键步骤**: 将这段 OHLC 数据转换为 **ASCII 字符画** (美国线/蜡烛图形式)，直观展示形态。
+    -   获取当前账户权益 (Equity)。
+3.  **LLM 分析**:
+    -   发送 Prompt (含：ASCII图、OHLC数值、账户权益、风险偏好)。
+    -   等待 LLM 返回 JSON 格式信号。
+4.  **信号决策**:
+    -   **否决**: 如果 LLM 认为当前K线不具备入场条件，休眠至下一根K线收盘。
+    -   **通过**: LLM 返回 `Action: BUY/SELL`，包含 `EntryPrice`, `StopLoss`, `TakeProfit`, `Quantity` (由LLM根据风险计算)。
+
+### 阶段二：订单执行 (Execution)
+收到开仓信号后，进入执行逻辑：
+1.  **价格检查**: 获取当前最新市场价格 (`CurrentPrice`)。
+2.  **入场判断**:
+    -   **场景 A (突破单)**: 若 `CurrentPrice < SignalCandle.High` (做多为例)，在 `SignalCandle.High + 1 tick` 处挂 **止损买入单 (Stop Market/Limit)**。
+        -   *动作*: 挂单 -> 监听 WebSocket 订单状态。
+    -   **场景 B (市价追单)**: 若 `CurrentPrice >= SignalCandle.High` (价格已突破)，立即执行 **市价单 (Market Order)** 入场。
+3.  **取消机制**: 若挂出的突破单在下一根K线收盘前未成交，则取消订单，重新评估（或根据策略保留）。
+
+### 阶段三：仓位管理 (Position Management)
+一旦入场成交（无论是突破单成交还是市价成交）：
+1.  **OCO/止盈止损**: 立即根据 LLM 提供的 `StopLoss` 和 `TakeProfit` 价格挂出平仓订单。
+2.  **静默监控**:
+    -   不再请求 LLM，仅通过 WebSocket 监听仓位变化。
+    -   等待止损或止盈触发。
+3.  **重置**: 仓位平仓后，重置状态，回到“阶段一”。
+
+## 5. 配置管理
+
+### 5.1 环境变量 (`.env`)
+用于敏感信息与基础连接配置。
+```env
+# 交易所配置
+EXCHANGE_ID=bitget
+IS_SANDBOX=true  # true=使用模拟盘API, false=使用实盘API
+
+# 实盘账户 (Live Account)
+PROD_API_KEY=your_prod_api_key
+PROD_API_SECRET=your_prod_api_secret
+PROD_API_PASSWORD=your_prod_api_password
+
+# 模拟账户 (Demo/Sandbox Account)
+DEMO_API_KEY=your_demo_api_key
+DEMO_API_SECRET=your_demo_api_secret
+DEMO_API_PASSWORD=your_demo_api_password
+
+# LLM 配置
+LLM_PROVIDER=deepseek
+LLM_API_KEY=sk-xxxxxx
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+```
+
+### 5.2 策略配置 (`config.toml`)
+用于调整交易参数。
+```toml
+[strategy]
+timeframe = "15m"
+lookback_candles = 20      # 发送给LLM的K线数量
+risk_per_trade = 0.01      # 单笔风险 (账户权益的 1%)
+max_open_positions = 3     # 最大同时持仓币种数
+
+[symbols]
+# 启用的交易对列表
+active = [
+    "BTC/USDT:USDT",
+    "ETH/USDT:USDT",
+    "SOL/USDT:USDT"
+]
+
+[execution]
+slippage_tolerance = 0.001 # 滑点容忍度
+entry_offset_ticks = 1     # 突破单价格偏移 tick 数
+```
+
+## 6. 数据接口定义 (TypeScript)
+
+### LLM 输入 Prompt 结构示意
+```typescript
+interface LLMPromptContext {
+    symbol: string;
+    accountEquity: number;
+    riskPerTrade: number; // e.g., 0.01
+    ohlcData: OHLC[];     // 最近 N 根K线
+    asciiChart: string;   // 字符画字符串
+}
+```
+
+### LLM 输出 JSON 结构
+```typescript
+interface TradeSignal {
+    decision: "APPROVE" | "REJECT";
+    reason: string;       // 分析理由 (简短)
+    action?: "BUY" | "SELL";
+    orderType: "STOP" | "MARKET"; // 建议类型，实际执行需根据当前价格判断
+    entryPrice: number;   // 信号K线的高点/低点
+    stopLoss: number;     // 初始止损位
+    takeProfit: number;   // 目标止盈位
+    quantity: number;     // 计算好的开仓数量
+}
+```
+
+## 7. 关键实现细节
+
+### 7.1 ASCII K线绘制
+为了让 LLM 更好地理解形态，我们将 OHLC 数据转换为 ASCII 图。
+*示例*:
+```text
+      |
+  |   |
+  +---+   |
+  |   |   +---+
+  |   |   |   |
+--+   +---+   +--
+```
+*技术方案*: 使用现成的轻量级库（如 `asciichart` 或自定义绘图函数）将 K 线序列转换为文本块。
+
+### 7.2 风险控制与数量计算
+虽然 Prompt 要求 LLM 返回数量，但为了双重保险，系统内部应包含校验逻辑：
+$$ \text{Quantity} = \frac{\text{Equity} \times \text{RiskPerTrade}}{|\text{EntryPrice} - \text{StopLoss}|} $$
+*注意*: 需处理最小下单数量和精度问题。
+
+### 7.3 并发处理
+使用 `Promise.all` 或独立的 `TradeManager` 类实例来管理每个 Symbol。
+```typescript
+const managers = config.symbols.active.map(symbol => new TradeManager(symbol));
+await Promise.all(managers.map(m => m.startLoop()));
+```
+
+## 8. 开发路线图
+
+- [ ] **Step 1: 基础框架搭建**
+    - 初始化 TS 项目，配置 ESLint/Prettier。
+    - 实现 Config Loader (toml/env)。
+    - 封装 CCXT 连接与基础公用方法 (fetchOHLC, getBalance)。
+
+- [ ] **Step 2: LLM 交互模块**
+    - 实现 ASCII Chart 生成器。
+    - 编写 Prompt 模板。
+    - 封装 OpenAI SDK 调用与 JSON 解析/容错处理。
+
+- [ ] **Step 3: 交易逻辑核心**
+    - 实现信号解析与订单路由。
+    - 实现突破单挂单逻辑 (check price -> place stop order)。
+    - 实现止盈止损挂单。
+
+- [ ] **Step 4: 循环与并发**
+    - 实现 15分钟 K线 监听/轮询机制。
+    - 整合多交易对并行运行。
+
+- [ ] **Step 5: 测试与优化**
+    - 模拟盘测试 (Paper Trading)。
+    - 边缘情况处理 (API超时、网络断开、LLM幻觉)。
+
+---
+*Generated by Universal Software Engineering Agent*
