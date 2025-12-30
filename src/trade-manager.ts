@@ -138,7 +138,8 @@ export class TradeManager {
           } ${plan.quantity} @ ${plan.entryOrder.price || "Market"}`
         );
 
-        await this.executeTradePlan(plan);
+        const orders = await this.executor.executeTradePlan(plan);
+        this.activeOrders.push(...orders);
 
         // Switch state to MANAGING (Simple implementation for now)
         // In a full system, we would track this order via WebSocket
@@ -149,122 +150,6 @@ export class TradeManager {
           `[TradeManager] ${this.symbol} - Failed to generate valid trade plan.`
         );
       }
-    }
-  }
-
-  private async executeTradePlan(plan: TradePlan) {
-    logger.info(`[TradeManager] Executing Trade Plan for ${plan.symbol}...`);
-    const exchange = this.exchangeManager.getExchange();
-
-    try {
-      // 1. Place Entry Order
-      const entry = plan.entryOrder;
-      logger.info(
-        `[TradeManager] Placing Entry Order: ${entry.type} ${entry.side} ${
-          entry.amount
-        } @ ${entry.price || entry.stopPrice || "Market"}`
-      );
-
-      // CCXT Unified Order Interface
-      // createOrder (symbol, type, side, amount, price, params)
-      // For stop_market, price is usually ignored or used as stopPrice depending on exchange
-      // For Bitget, 'stop_market' might need specific params
-
-      const params = entry.params || {};
-      let price = entry.price;
-
-      // Handle Trigger Price for Stop Orders
-      if (entry.type === "stop_market" || entry.type === "stop") {
-        if (entry.stopPrice) {
-          params["triggerPrice"] = entry.stopPrice; // Common standard
-          // Some exchanges require 'stopPrice' in params
-          params["stopPrice"] = entry.stopPrice;
-        }
-        // For stop_market, 'price' arg is usually undefined or ignored
-        if (entry.type === "stop_market") price = undefined;
-      }
-
-      const order = await exchange.createOrder(
-        entry.symbol,
-        entry.type,
-        entry.side,
-        entry.amount,
-        price,
-        params
-      );
-
-      logger.info(`[TradeManager] Entry Order Placed. ID: ${order.id}`);
-      this.activeOrders.push(order);
-
-      // 2. Place TP/SL if Entry was Market (Immediate)
-      // If Entry was Pending, usually we wait for fill, OR use OCO if supported.
-      // For simplicity in this iteration:
-      // - If Market Entry: Place TP/SL immediately.
-      // - If Pending Entry: We should technically wait.
-      //   BUT, for "Trigger Order" support, some exchanges allow attaching TPSL.
-      //   Here we will attempt to place separate Reduce-Only orders.
-
-      // Note: If Entry is pending, placing Reduce-Only TP/SL might fail if no position exists yet.
-      // This is a complex area. For MVP, we will try to place them if it's a Market order,
-      // or rely on Exchange's "Algo Order" if it's a Stop Entry.
-
-      if (entry.type === "market") {
-        await this.placeRiskOrders(plan);
-      } else {
-        logger.info(
-          `[TradeManager] Entry is Pending. TP/SL should be placed after fill (Not fully implemented yet, watch for fills).`
-        );
-        // TODO: Implement WebSocket monitoring to place TP/SL upon fill
-      }
-    } catch (error: any) {
-      logger.error(`[TradeManager] Execution Failed: ${error.message}`);
-      // TODO: Cancel any partial orders?
-    }
-  }
-
-  private async placeRiskOrders(plan: TradePlan) {
-    const exchange = this.exchangeManager.getExchange();
-
-    try {
-      // Stop Loss
-      if (plan.stopLossOrder) {
-        const sl = plan.stopLossOrder;
-        logger.info(`[TradeManager] Placing Stop Loss: ${sl.stopPrice}`);
-        const slParams = {
-          ...sl.params,
-          triggerPrice: sl.stopPrice,
-          stopPrice: sl.stopPrice,
-        };
-
-        await exchange.createOrder(
-          sl.symbol,
-          sl.type,
-          sl.side,
-          sl.amount,
-          sl.price, // undefined for stop_market
-          slParams
-        );
-      }
-
-      // Take Profit
-      if (plan.takeProfitOrder) {
-        const tp = plan.takeProfitOrder;
-        logger.info(`[TradeManager] Placing Take Profit: ${tp.price}`);
-        await exchange.createOrder(
-          tp.symbol,
-          tp.type,
-          tp.side,
-          tp.amount,
-          tp.price,
-          tp.params
-        );
-      }
-    } catch (error: any) {
-      logger.error(
-        `[TradeManager] Failed to place Risk Orders: ${error.message}`
-      );
-      // Critical error: Position open without SL!
-      // Urgent: Close position or retry?
     }
   }
 
