@@ -3,6 +3,7 @@ import { ConfigLoader } from "../config/config";
 import { logger } from "../utils/logger";
 import { TradeSignal, OHLC, LLMPromptContext } from "../types";
 import { ChartUtils } from "../utils/chart-utils";
+import { TechnicalIndicators } from "../utils/indicators";
 
 export class LLMService {
   private openai: OpenAI;
@@ -15,6 +16,20 @@ export class LLMService {
       apiKey: config.llm.apiKey,
     });
     this.model = config.llm.model;
+  }
+
+  private formatOHLCWithEMA(ohlc: OHLC[]): string {
+    const ema20 = TechnicalIndicators.calculateEMA(ohlc, 20);
+    return ohlc
+      .map(
+        (c, i) =>
+          `[${i}] T:${new Date(c.timestamp).toISOString().substr(11, 5)} O:${
+            c.open
+          } H:${c.high} L:${c.low} C:${c.close} EMA20:${
+            ema20[i] ? ema20[i]?.toFixed(2) : "N/A"
+          } V:${c.volume}`
+      )
+      .join("\n");
   }
 
   /**
@@ -44,18 +59,26 @@ export class LLMService {
     };
 
     // 3. Construct Prompt
-    const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on 15-minute timeframes.
+    const timeframe = ConfigLoader.getInstance().strategy.timeframe;
+    const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
 Your goal is to identify high-probability trade setups (>60% win rate) or good risk/reward setups (>1:2) based strictly on Price Action principles.
 
 ### CORE PHILOSOPHY (Al Brooks)
 1. **Context is King**: Always determine the Market Cycle first (Trend, Trading Range, Breakout Mode).
 2. **Every Tick Matters**: Analyze bar bodies, tails (wicks), and closes relative to the bar range.
 3. **Trader's Equation**: Probability * Reward > (1 - Probability) * Risk.
+4. **20-Period EMA (Exponential Moving Average)**: This is your primary trend reference.
+   - **Gap**: The space between the price and the EMA. In strong trends, a gap is maintained.
+   - **Magnet**: The EMA acts as a magnet. If price gets too far (overextended), it often pulls back to the EMA.
+   - **Trend vs Range**:
+     - Price consistently > EMA = Bull Trend.
+     - Price consistently < EMA = Bear Trend.
+     - Price oscillating around EMA = Trading Range.
 
 ### ANALYSIS FRAMEWORK
 1. **Market Cycle Phase**:
-   - **Strong Trend**: Gaps between bars, strong breakout bars. -> *Action*: Enter on Pullbacks (H1/H2 Bull Flags, L1/L2 Bear Flags).
-   - **Trading Range**: Sideways overlapping bars, prominent tails. -> *Action*: Buy Low, Sell High (BLSHS). Fade breakouts.
+   - **Strong Trend**: Gaps between bars, strong breakout bars. Price holds above/below EMA. -> *Action*: Enter on Pullbacks to EMA (H1/H2 Bull Flags, L1/L2 Bear Flags).
+   - **Trading Range**: Sideways overlapping bars, prominent tails, price oscillating around EMA. -> *Action*: Buy Low, Sell High (BLSHS). Fade breakouts.
    - **Trend Channel Line (Overshoot)**: Look for wedges and reversals.
 
 2. **Setup Identification**:
@@ -83,9 +106,10 @@ Your goal is to identify high-probability trade setups (>60% win rate) or good r
 
 ### OUTPUT FORMAT
 You MUST return a strictly valid JSON object. No markdown, no "Here is the JSON".
+IMPORTANT: The "reason" field MUST be in Simplified Chinese (简体中文). All other fields MUST be in English as specified.
 {
     "decision": "APPROVE" | "REJECT",
-    "reason": "Context: [Trend/Range]. Setup: [H1/Wedge/etc]. Signal Bar: [Strong/Weak]. Probability: [High/Low].",
+    "reason": "使用简体中文详细说明原因。包括：市场背景(趋势/区间/EMA位置)、具体形态(楔形/H1/H2/MTR等)、信号K线质量、以及对概率和盈亏比的评估。",
     "action": "BUY" | "SELL",
     "orderType": "STOP" | "MARKET",
     "entryPrice": number,
@@ -95,14 +119,7 @@ You MUST return a strictly valid JSON object. No markdown, no "Here is the JSON"
 }`;
 
     // Format OHLC for prompt (Compact format to save tokens)
-    const formattedOHLC = ohlc
-      .map(
-        (c, i) =>
-          `[${i}] T:${new Date(c.timestamp).toISOString().substr(11, 5)} O:${
-            c.open
-          } H:${c.high} L:${c.low} C:${c.close} V:${c.volume}`
-      )
-      .join("\n");
+    const formattedOHLC = this.formatOHLCWithEMA(ohlc);
 
     const userPrompt = `
 Current Market Context:
@@ -157,6 +174,87 @@ Return JSON only.
         decision: "REJECT",
         reason: `LLM 错误: ${error.message}`,
       } as any;
+    }
+  }
+
+  /**
+   * Analyzes an existing pending breakout order to decide whether to KEEP or CANCEL it.
+   */
+  public async analyzePendingOrder(
+    symbol: string,
+    ohlc: OHLC[],
+    pendingOrder: {
+      action: "BUY" | "SELL";
+      entryPrice: number;
+      reason: string;
+    }
+  ): Promise<{ decision: "KEEP" | "CANCEL"; reason: string }> {
+    const asciiChart = ChartUtils.generateCandlestickChart(ohlc);
+
+    const formattedOHLC = this.formatOHLCWithEMA(ohlc);
+
+    const timeframe = ConfigLoader.getInstance().strategy.timeframe;
+    const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
+You currently have a **PENDING BREAKOUT ORDER** (Stop Entry) in the market.
+Your goal is to re-evaluate the market structure after the most recent candle close to decide if this order should remain active or be cancelled.
+
+### DECISION FRAMEWORK
+1. **Valid Setup**: If the original setup (e.g., Bull Flag, Wedge) is still valid and the market hasn't invalidated the premise -> **KEEP**.
+2. **Invalidated**: 
+   - If the market moved significantly against the direction -> **CANCEL**.
+   - If the signal bar was a "trap" or the setup failed -> **CANCEL**.
+   - If a better signal has appeared in the opposite direction -> **CANCEL**.
+   - If the breakout didn't trigger within 1-2 candles (depending on context) and momentum is lost -> **CANCEL**.
+3. **20-Period EMA Context**:
+   - Ensure the trend relative to EMA supports the trade direction (unless it's a mean-reversion trade).
+   - Watch for EMA acting as resistance/support against your trade.
+
+### OUTPUT FORMAT
+Strictly JSON.
+IMPORTANT: The "reason" field MUST be in Simplified Chinese (简体中文).
+{
+  "decision": "KEEP" | "CANCEL",
+  "reason": "使用简体中文解释原因。说明市场结构是否发生变化，EMA支撑阻力情况，为何维持或取消订单。"
+}`;
+
+    const userPrompt = `
+Current Market Context:
+Symbol: ${symbol}
+Recent OHLC Data (Last ${ohlc.length} bars):
+${formattedOHLC}
+
+ASCII Chart:
+${asciiChart}
+
+PENDING ORDER DETAILS:
+Type: ${pendingOrder.action} STOP ENTRY
+Entry Price: ${pendingOrder.entryPrice}
+Original Reason: ${pendingOrder.reason}
+
+TASK:
+Analyze the latest candle(s) relative to the pending order.
+Should we keep waiting for this breakout, or has the opportunity passed/failed?
+`;
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const content = response.choices[0].message.content;
+      if (!content) throw new Error("Empty LLM response");
+      return JSON.parse(content);
+    } catch (error: any) {
+      logger.error(
+        `[LLM Service] Failed to analyze pending order: ${error.message}`
+      );
+      // Default to CANCEL on error for safety
+      return { decision: "CANCEL", reason: "LLM Error or Timeout" };
     }
   }
 }

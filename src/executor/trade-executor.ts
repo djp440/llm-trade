@@ -343,7 +343,7 @@ export class TradeExecutor {
     return orders;
   }
 
-  private async placeRiskOrders(
+  public async placeRiskOrders(
     plan: TradePlan,
     isHedgeMode: boolean = false
   ): Promise<Order[]> {
