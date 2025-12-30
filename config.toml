@@ -1,0 +1,17 @@
+[strategy]
+timeframe = "15m"
+lookback_candles = 20      # 发送给LLM的K线数量
+risk_per_trade = 0.01      # 单笔风险 (账户权益的 1%)
+max_open_positions = 3     # 最大同时持仓币种数
+
+[symbols]
+# 启用的交易对列表
+active = [
+    "BTC/USDT:USDT",
+    "ETH/USDT:USDT",
+    "SOL/USDT:USDT"
+]
+
+[execution]
+slippage_tolerance = 0.001 # 滑点容忍度
+entry_offset_ticks = 1     # 突破单价格偏移 tick 数
