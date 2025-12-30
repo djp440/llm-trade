@@ -95,7 +95,7 @@ export class TradeManager {
     // 我们获取总权益。未来我们可能想要每个交易对的逐仓保证金。
     const balance = await this.exchangeManager.getExchange().fetchBalance();
     // 假设基于 USDT
-    const equity = balance.total["USDT"] || 0;
+    const equity = (balance as any).total["USDT"] || 0;
 
     if (equity === 0) {
       logger.warn(`[交易管理器] ${this.symbol} - 权益为零，跳过分析。`);
