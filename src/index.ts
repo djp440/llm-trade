@@ -1,20 +1,21 @@
 import { config } from "./config/config";
 import { ExchangeManager } from "./market/exchange-manager";
 import { logger } from "./utils/logger";
+import { TradeManager } from "./trade-manager";
 
 async function main() {
-  console.log("Starting LLM-PriceAction-Bot...");
-  console.log("--------------------------------");
+  logger.info("Starting LLM-PriceAction-Bot...");
+  logger.info("--------------------------------");
 
   try {
     // 1. Validate Config
-    console.log(`Loaded Config:`);
-    console.log(
+    logger.info(`Loaded Config:`);
+    logger.info(
       `- Exchange: ${config.exchange.id} (Sandbox: ${config.exchange.isSandbox})`
     );
-    console.log(`- Strategy: ${config.strategy.timeframe} timeframe`);
-    console.log(`- LLM: ${config.llm.provider} (${config.llm.model})`);
-    console.log("--------------------------------");
+    logger.info(`- Strategy: ${config.strategy.timeframe} timeframe`);
+    logger.info(`- LLM: ${config.llm.provider} (${config.llm.model})`);
+    logger.info("--------------------------------");
 
     // 2. Initialize Exchange Manager
     const exchangeManager = new ExchangeManager();
@@ -23,7 +24,25 @@ async function main() {
     await exchangeManager.testConnection();
 
     logger.info("--------------------------------");
-    logger.info("System initialization check complete.");
+    logger.info(
+      "System initialization check complete. Starting Trading Loops..."
+    );
+
+    // 4. Start Trading Managers
+    const activeSymbols = config.symbols.active;
+
+    if (activeSymbols.length === 0) {
+      logger.warn("No active symbols configured in config.toml");
+      return;
+    }
+
+    const managers = activeSymbols.map(
+      symbol => new TradeManager(symbol, exchangeManager)
+    );
+
+    // Run all loops in parallel
+    // We catch individual loop errors inside TradeManager, so this Promise.all should theoretically run forever.
+    await Promise.all(managers.map(m => m.startLoop()));
   } catch (error) {
     logger.error("Fatal Error during initialization:", error);
     process.exit(1);
