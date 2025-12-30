@@ -1,0 +1,36 @@
+{
+  "name": "llm-trade",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "doc"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/djp440/llm-trade.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/djp440/llm-trade/issues"
+  },
+  "homepage": "https://github.com/djp440/llm-trade#readme",
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "asciichart": "^1.5.25",
+    "ccxt": "^4.5.30",
+    "dotenv": "^17.2.3",
+    "openai": "^6.15.0"
+  },
+  "devDependencies": {
+    "@types/asciichart": "^1.5.8",
+    "@types/node": "^25.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
