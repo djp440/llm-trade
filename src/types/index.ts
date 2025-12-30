@@ -29,3 +29,24 @@ export interface LLMPromptContext {
     ohlcData: OHLC[];
     asciiChart: string;
 }
+
+export interface OrderRequest {
+    symbol: string;
+    type: "market" | "limit" | "stop" | "stop_market";
+    side: "buy" | "sell";
+    amount: number;
+    price?: number;
+    stopPrice?: number;
+    params?: any; // For exchange specific params (e.g. OCO)
+}
+
+export interface TradePlan {
+    symbol: string;
+    action: "BUY" | "SELL";
+    entryOrder: OrderRequest;
+    stopLossOrder: OrderRequest;
+    takeProfitOrder: OrderRequest;
+    quantity: number;
+    riskAmount: number;
+    reason: string;
+}
