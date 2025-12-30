@@ -8,134 +8,161 @@ import { logger } from "../utils/logger";
  * Ensures data integrity and correct candle selection (closed candles only).
  */
 export class MarketDataManager {
-    private exchange: Exchange;
+  private exchange: Exchange;
 
-    constructor(private exchangeManager: ExchangeManager, private symbol: string) {
-        this.exchange = this.exchangeManager.getExchange();
+  constructor(
+    private exchangeManager: ExchangeManager,
+    private symbol: string
+  ) {
+    this.exchange = this.exchangeManager.getExchange();
+  }
+
+  /**
+   * Fetch raw OHLC data from exchange
+   */
+  public async fetchOHLC(
+    timeframe: string,
+    limit: number = 50
+  ): Promise<OHLC[]> {
+    try {
+      // ccxt returns [timestamp, open, high, low, close, volume]
+      // We fetch limit + 2 to handle the "current unfinished" candle and potential latency
+      const ohlcv = await this.exchange.fetchOHLCV(
+        this.symbol,
+        timeframe,
+        undefined,
+        limit + 2
+      );
+
+      return ohlcv
+        .map(c => ({
+          timestamp: c[0] as number,
+          open: c[1] as number,
+          high: c[2] as number,
+          low: c[3] as number,
+          close: c[4] as number,
+          volume: c[5] as number,
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+    } catch (error: any) {
+      logger.error(
+        `[市场数据] 获取 ${this.symbol} 的 OHLC 失败: ${error.message}`
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 仅获取经过验证的、已完成的 K 线。
+   * 使用时间戳对齐以确保最新的 K 线确实已收盘。
+   *
+   * @param timeframe 时间框架字符串 (例如 '15m')
+   * @param lookback 需要的 K 线数量
+   * @returns 已收盘的 OHLC K 线数组
+   */
+  public async getConfirmedCandles(
+    timeframe: string,
+    lookback: number
+  ): Promise<OHLC[]> {
+    const rawCandles = await this.fetchOHLC(timeframe, lookback);
+
+    if (rawCandles.length < 2) {
+      throw new Error(`[市场数据] ${this.symbol} 的 K 线数据不足`);
     }
 
-    /**
-     * Fetch raw OHLC data from exchange
-     */
-    public async fetchOHLC(timeframe: string, limit: number = 50): Promise<OHLC[]> {
-        try {
-            // ccxt returns [timestamp, open, high, low, close, volume]
-            // We fetch limit + 2 to handle the "current unfinished" candle and potential latency
-            const ohlcv = await this.exchange.fetchOHLCV(this.symbol, timeframe, undefined, limit + 2);
-            
-            return ohlcv.map(c => ({
-                timestamp: c[0] as number,
-                open: c[1] as number,
-                high: c[2] as number,
-                low: c[3] as number,
-                close: c[4] as number,
-                volume: c[5] as number
-            })).sort((a, b) => a.timestamp - b.timestamp);
-        } catch (error: any) {
-            logger.error(`[MarketData] Failed to fetch OHLC for ${this.symbol}: ${error.message}`);
-            throw error;
-        }
+    const lastCandle = rawCandles[rawCandles.length - 1];
+
+    // 计算预期的理论时间边界
+    const durationMs = this.parseTimeframeToMs(timeframe);
+    const now = Date.now();
+    // 当前（进行中）K 线插槽的开始时间
+    const currentSlotStart = Math.floor(now / durationMs) * durationMs;
+
+    let confirmedCandles: OHLC[] = [];
+
+    // 逻辑：
+    // 如果 lastCandle.timestamp == currentSlotStart：
+    //    意味着交易所已经创建了新的 K 线。
+    //    因此它之前的 K 线（索引 - 2）肯定是已经关闭且最终确定的。
+    //    但是，通常我们只需要当前 K 线之前的那个。
+    //    所以 rawCandles[length-2] 就是我们要的“最新已收盘”K 线。
+
+    // 如果 lastCandle.timestamp < currentSlotStart：
+    //    意味着交易所尚未创建新的 K 线（延迟）。
+    //    但是，如果 lastCandle.timestamp == currentSlotStart - durationMs：
+    //       意味着这最后一根 K 线就是刚刚收盘的那根。
+    //       由于时间 > currentSlotStart，这根 K 线在技术上已经关闭，
+    //       即使新的 K 线尚未在 API 中出现。
+    //       我们可以使用它，但为了 100% 确定“收盘”价格的稳定性，等待新 K 线出现会更安全。
+    //       然而，对于 15 分钟时间框架，如果已经过去了几秒钟，使用它通常也是可以的。
+
+    if (lastCandle.timestamp === currentSlotStart) {
+      // 情况 1：新 K 线已存在。它之前的那根已收盘。
+      // 我们从倒数第二根开始取。
+      // slice(start, end) -> end 是不包含在内的。
+      // 我们想要 [..., prev, last] -> 我们想要排除 last。
+      confirmedCandles = rawCandles.slice(0, -1);
+    } else {
+      // 情况 2：新 K 线尚未可见。
+      // 检查最后一根 K 线是否是刚刚完成的那根。
+      const expectedLastCloseStart = currentSlotStart - durationMs;
+
+      if (lastCandle.timestamp === expectedLastCloseStart) {
+        // 它是刚刚收盘的 K 线。
+        // 我们将其作为最新的已确认 K 线。
+        confirmedCandles = rawCandles;
+      } else {
+        // 情况 3：数据陈旧（早于 1 个周期）。
+        logger.warn(
+          `[市场数据] ${this.symbol} 数据陈旧。最后时间: ${new Date(
+            lastCandle.timestamp
+          ).toISOString()}, 当前插槽: ${new Date(
+            currentSlotStart
+          ).toISOString()}`
+        );
+        // 返回我们拥有的数据，但发出警告。或者抛出异常。
+        // 目前，返回有效的数据。
+        confirmedCandles = rawCandles;
+      }
     }
 
-    /**
-     * Get validated, COMPLETED candles only.
-     * Uses timestamp alignment to ensure the latest candle is truly closed.
-     * 
-     * @param timeframe Timeframe string (e.g. '15m')
-     * @param lookback Number of candles needed
-     * @returns Array of closed OHLC candles
-     */
-    public async getConfirmedCandles(timeframe: string, lookback: number): Promise<OHLC[]> {
-        const rawCandles = await this.fetchOHLC(timeframe, lookback);
-        
-        if (rawCandles.length < 2) {
-             throw new Error(`[MarketData] Not enough candles data for ${this.symbol}`);
-        }
+    // 仅返回请求的追溯数量
+    return confirmedCandles.slice(-lookback);
+  }
 
-        const lastCandle = rawCandles[rawCandles.length - 1];
-        
-        // Calculate expected time boundaries
-        const durationMs = this.parseTimeframeToMs(timeframe); 
-        const now = Date.now();
-        // The start time of the CURRENT (ongoing) candle slot
-        const currentSlotStart = Math.floor(now / durationMs) * durationMs;
-        
-        let confirmedCandles: OHLC[] = [];
-
-        // Logic:
-        // If lastCandle.timestamp == currentSlotStart:
-        //    It means the exchange has created the NEW candle.
-        //    So the candle before it (index - 2) is definitely closed and final.
-        //    BUT, usually we just need the one before the current one.
-        //    So rawCandles[length-2] is the one we want as the "latest closed".
-        
-        // If lastCandle.timestamp < currentSlotStart:
-        //    It means the exchange has NOT yet created the new candle (latency).
-        //    BUT, if lastCandle.timestamp == currentSlotStart - durationMs:
-        //       It means this lastCandle IS the one that just closed.
-        //       Since time > currentSlotStart, this candle is technically closed,
-        //       even if the new one hasn't appeared in the API yet.
-        //       We can use it, but it's safer to wait for the new one to appear to be 100% sure of "Close" price stability.
-        //       However, for 15m timeframe, using it is usually fine if we are seconds past the mark.
-        
-        if (lastCandle.timestamp === currentSlotStart) {
-            // Case 1: New candle exists. The one before it is closed.
-            // We take from end-1 backwards.
-            // slice(start, end) -> end is exclusive.
-            // We want [..., prev, last] -> we want to exclude last.
-            confirmedCandles = rawCandles.slice(0, -1);
-        } else {
-            // Case 2: New candle not yet visible.
-            // Check if the last candle is the one that just finished.
-            const expectedLastCloseStart = currentSlotStart - durationMs;
-            
-            if (lastCandle.timestamp === expectedLastCloseStart) {
-                // It is the just-closed candle.
-                // We use it as the latest confirmed candle.
-                confirmedCandles = rawCandles;
-            } else {
-                // Case 3: Data is stale (older than 1 period).
-                logger.warn(`[MarketData] Stale data for ${this.symbol}. Last: ${new Date(lastCandle.timestamp).toISOString()}, Current Slot: ${new Date(currentSlotStart).toISOString()}`);
-                // Return what we have, but warn. Or throw.
-                // For now, return valid ones.
-                confirmedCandles = rawCandles;
-            }
-        }
-
-        // Trim to requested lookback length from the end
-        if (confirmedCandles.length > lookback) {
-            confirmedCandles = confirmedCandles.slice(confirmedCandles.length - lookback);
-        }
-
-        return confirmedCandles;
+  /**
+   * 获取最新成交价（市价）
+   */
+  public async getCurrentPrice(): Promise<number> {
+    try {
+      const ticker = await this.exchange.fetchTicker(this.symbol);
+      return ticker.last!;
+    } catch (error: any) {
+      logger.error(
+        `[市场数据] 获取 ${this.symbol} 当前价格失败: ${error.message}`
+      );
+      throw error;
     }
+  }
 
-    /**
-     * Get current market price (Ticker)
-     */
-    public async getCurrentPrice(): Promise<number> {
-        try {
-            const ticker = await this.exchange.fetchTicker(this.symbol);
-            return ticker.last || ticker.close || 0;
-        } catch (error: any) {
-            logger.error(`[MarketData] Failed to fetch ticker for ${this.symbol}: ${error.message}`);
-            throw error;
-        }
-    }
+  /**
+   * Helper to parse timeframe to milliseconds
+   */
+  public parseTimeframeToMs(tf: string): number {
+    const unit = tf.slice(-1);
+    const value = parseInt(tf.slice(0, -1));
 
-    /**
-     * Helper to parse timeframe to milliseconds
-     */
-    public parseTimeframeToMs(tf: string): number {
-        const unit = tf.slice(-1);
-        const value = parseInt(tf.slice(0, -1));
-        
-        switch(unit) {
-            case 'm': return value * 60 * 1000;
-            case 'h': return value * 60 * 60 * 1000;
-            case 'd': return value * 24 * 60 * 60 * 1000;
-            case 'w': return value * 7 * 24 * 60 * 60 * 1000;
-            default: return 15 * 60 * 1000; // Default 15m
-        }
+    switch (unit) {
+      case "m":
+        return value * 60 * 1000;
+      case "h":
+        return value * 60 * 60 * 1000;
+      case "d":
+        return value * 24 * 60 * 60 * 1000;
+      case "w":
+        return value * 7 * 24 * 60 * 60 * 1000;
+      default:
+        return 15 * 60 * 1000; // Default 15m
     }
+  }
 }

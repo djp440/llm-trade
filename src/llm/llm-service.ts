@@ -96,39 +96,31 @@ Quantity = (Equity * RiskPerTrade) / |EntryPrice - StopLoss|
 Ensure strict risk management.
 `;
 
-    // 4. Call LLM
+    // 4. 调用 LLM
     try {
-      const completion = await this.openai.chat.completions.create({
+      const response = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },
-        temperature: 0.2, // Low temp for analytical tasks
       });
 
-      const content = completion.choices[0].message.content;
+      const content = response.choices[0].message.content;
       if (!content) {
-        throw new Error("Empty response from LLM");
+        throw new Error("LLM 返回内容为空");
       }
 
-      const signal = JSON.parse(content) as TradeSignal;
+      const signal: TradeSignal = JSON.parse(content);
       return signal;
-    } catch (error) {
-      logger.error("LLM Analysis Failed:", error);
-      // Return a safe REJECT signal on error
+    } catch (error: any) {
+      logger.error(`[LLM 服务] 分析市场失败: ${error.message}`);
+      // 发生错误时返回 REJECT 信号
       return {
         decision: "REJECT",
-        reason: `Error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        entryPrice: 0,
-        stopLoss: 0,
-        takeProfit: 0,
-        quantity: 0,
-        orderType: "MARKET",
-      };
+        reason: `LLM 错误: ${error.message}`,
+      } as any;
     }
   }
 }

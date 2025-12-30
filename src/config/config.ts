@@ -67,7 +67,7 @@ export class ConfigLoader {
       tomlConfig = toml.parse(fileContent);
     } catch (error) {
       logger.warn(
-        `Warning: Could not load config.toml from ${configPath}, using defaults or failing.`
+        `警告: 无法从 ${configPath} 加载 config.toml，正在使用默认值或失败。`
       );
       throw error;
     }

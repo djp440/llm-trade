@@ -6,80 +6,78 @@ import { config } from "../src/config/config";
 import { Order } from "ccxt";
 
 async function runTests() {
-  logger.info("Starting REAL Order Execution Tests...");
+  logger.info("正在启动真实订单执行测试...");
 
-  // 1. Initialize Exchange
+  // 1. 初始化交易所
   const exchangeManager = new ExchangeManager();
   const exchange = exchangeManager.getExchange();
 
-  logger.info(`[Setup] Exchange: ${exchange.id}`);
-  logger.info(`[Setup] Sandbox Mode: ${config.exchange.isSandbox}`);
+  logger.info(`[设置] 交易所: ${exchange.id}`);
+  logger.info(`[设置] 沙盒模式: ${config.exchange.isSandbox}`);
 
   if (!config.exchange.isSandbox) {
-    logger.warn("!!! WARNING: RUNNING ON REAL EXCHANGE (NOT SANDBOX) !!!");
-    logger.warn("Waiting 5 seconds... Press Ctrl+C to abort.");
+    logger.warn("!!! 警告: 正在真实交易所运行 (非沙盒模式) !!!");
+    logger.warn("等待 5 秒... 按 Ctrl+C 终止。");
     await new Promise(r => setTimeout(r, 5000));
   }
 
-  // 2. Load Markets & Symbol
-  logger.info("[Setup] Loading markets...");
+  // 2. 加载市场和交易对
+  logger.info("[设置] 正在加载市场...");
   const markets = await exchange.loadMarkets();
-  logger.info(`[Setup] Loaded ${Object.keys(markets).length} markets.`);
+  logger.info(`[设置] 已加载 ${Object.keys(markets).length} 个市场。`);
   logger.info(
-    `[Setup] Sample symbols: ${Object.keys(markets).slice(0, 10).join(", ")}`
+    `[设置] 示例交易对: ${Object.keys(markets).slice(0, 10).join(", ")}`
   );
 
-  // Find a valid ETH swap symbol
+  // 找到一个有效的 ETH 永续合约交易对
   const ethSymbols = Object.keys(markets).filter(s => {
     const m = markets[s];
     return m && s.includes("ETH") && m.swap && m.quote === "USDT";
   });
-  logger.info(`[Setup] Found ETH Swap Symbols: ${ethSymbols.join(", ")}`);
+  logger.info(`[设置] 找到 ETH 永续合约交易对: ${ethSymbols.join(", ")}`);
 
   const symbol = config.symbols.active[0] || "ETH/USDT:USDT";
-  logger.info(`[Setup] Testing Symbol: ${symbol}`);
+  logger.info(`[设置] 测试交易对: ${symbol}`);
 
   const market = exchange.market(symbol);
   if (!market) {
-    throw new Error(`Market ${symbol} not found`);
+    throw new Error(`未找到市场 ${symbol}`);
   }
 
-  // 3. Get Current Price
+  // 3. 获取当前价格
   const ticker = await exchange.fetchTicker(symbol);
   if (!ticker || !ticker.last) {
-    throw new Error(`Could not fetch ticker for ${symbol}`);
+    throw new Error(`无法获取 ${symbol} 的行情`);
   }
   const currentPrice = ticker.last;
-  logger.info(`[Setup] Current Price: ${currentPrice}`);
+  logger.info(`[设置] 当前价格: ${currentPrice}`);
 
-  // Check Balance
+  // 检查余额
   const balance = await exchange.fetchBalance();
-  logger.info(`[Setup] USDT Balance: ${balance["USDT"]?.free}`);
+  logger.info(`[设置] USDT 余额: ${balance["USDT"]?.free}`);
 
-  // --- CLEANUP START ---
-  logger.info("\n[Setup] performing HARD CLEANUP to enable mode switch...");
+  // --- 清理开始 ---
+  logger.info("\n[设置] 正在执行强制清理以启用模式切换...");
   try {
-    // 1. Cancel all open orders (Normal + Plan)
-    logger.info("[Cleanup] Cancelling all open orders...");
+    // 1. 取消所有未成交订单 (普通 + 计划)
+    logger.info("[清理] 正在取消所有未成交订单...");
 
-    // Normal Orders
+    // 普通订单
     const openOrders = await exchange.fetchOpenOrders(symbol);
     for (const order of openOrders) {
       try {
         await exchange.cancelOrder(order.id, symbol);
-        logger.info(`[Cleanup] Cancelled normal order ${order.id}`);
+        logger.info(`[清理] 已取消普通订单 ${order.id}`);
       } catch (e) {
-        logger.warn(
-          `[Cleanup] Failed to cancel normal order ${order.id}: ${e}`
-        );
+        logger.warn(`[清理] 取消普通订单 ${order.id} 失败: ${e}`);
       }
     }
 
-    // Plan Orders (Trigger Orders)
+    // 计划委托订单 (触发单)
     try {
-      // Bitget specific: fetch plan orders
-      // CCXT might support fetchOpenOrders with params, or we try specific handling
-      // Attempting fetchOpenOrders with stop: true
+      // Bitget 特有: 获取计划委托订单
+      // CCXT 可能支持带参数的 fetchOpenOrders，或者我们尝试特定处理
+      // 尝试带 { stop: true } 的 fetchOpenOrders
       const planOrders = await exchange.fetchOpenOrders(
         symbol,
         undefined,
@@ -89,19 +87,17 @@ async function runTests() {
       for (const order of planOrders) {
         try {
           await exchange.cancelOrder(order.id, symbol, { stop: true });
-          logger.info(`[Cleanup] Cancelled plan order ${order.id}`);
+          logger.info(`[清理] 已取消计划委托订单 ${order.id}`);
         } catch (e) {
-          logger.warn(
-            `[Cleanup] Failed to cancel plan order ${order.id}: ${e}`
-          );
+          logger.warn(`[清理] 取消计划委托订单 ${order.id} 失败: ${e}`);
         }
       }
     } catch (e) {
-      logger.warn(`[Cleanup] Failed to fetch/cancel plan orders: ${e}`);
+      logger.warn(`[清理] 获取/取消计划委托订单失败: ${e}`);
     }
 
     // 2. Close all positions
-    logger.info("[Cleanup] Closing all positions...");
+    logger.info("[清理] 正在平仓所有仓位...");
     const positions = await exchange.fetchPositions([symbol]);
     const targetPos = positions.filter(
       p => p.symbol === symbol && (p.contracts || 0) > 0
@@ -110,64 +106,64 @@ async function runTests() {
     for (const pos of targetPos) {
       const size = pos.contracts || 0;
       const side = pos.side === "long" ? "sell" : "buy";
-      logger.info(`[Cleanup] Closing position: ${pos.side} ${size}`);
+      logger.info(`[清理] 正在平仓: ${pos.side} ${size}`);
 
-      // Try closing with Hedge mode param first (since we might be in Hedge)
+      // 首先尝试使用对冲模式参数进行平仓 (因为我们可能处于对冲模式)
       try {
         await exchange.createOrder(symbol, "market", side, size, undefined, {
           tradeSide: "Close",
         });
-        logger.info(`[Cleanup] Closed position (Hedge logic)`);
+        logger.info(`[清理] 已平仓 (对冲模式逻辑)`);
       } catch (e: any) {
-        // Fallback to One-Way logic
+        // 退回到单向持仓逻辑
         try {
           await exchange.createOrder(symbol, "market", side, size, undefined, {
             reduceOnly: true,
           });
-          logger.info(`[Cleanup] Closed position (One-Way logic)`);
+          logger.info(`[清理] 已平仓 (单向持仓逻辑)`);
         } catch (e2: any) {
-          logger.error(`[Cleanup] Failed to close position: ${e2.message}`);
+          logger.error(`[清理] 平仓失败: ${e2.message}`);
         }
       }
     }
 
-    // Wait a bit for cleanup to propagate
+    // 等待清理操作传播
     await new Promise(r => setTimeout(r, 2000));
   } catch (e: any) {
-    logger.warn(`[Cleanup] Error during cleanup: ${e.message}`);
+    logger.warn(`[清理] 清理过程中出错: ${e.message}`);
   }
-  // --- CLEANUP END ---
+  // --- 清理结束 ---
 
-  // Set Position Mode to One-Way if possible
+  // 如果可能，将持仓模式设置为单向持仓
   try {
-    // Try to force set to One-Way (false) directly
-    logger.info("[Setup] Attempting to force One-Way Mode...");
+    // 尝试直接强制设置为单向持仓 (false)
+    logger.info("[设置] 正在尝试强制设置单向持仓模式...");
     await exchange.setPositionMode(false, symbol);
-    logger.info("[Setup] Successfully set to One-Way Mode.");
+    logger.info("[设置] 成功设置为单向持仓模式。");
   } catch (e: any) {
-    logger.warn(`[Setup] Failed to set Position Mode: ${e.message}`);
-    // If set fails, we might be in Hedge mode or it's not supported.
-    // We'll proceed but warn.
+    logger.warn(`[设置] 设置持仓模式失败: ${e.message}`);
+    // 如果设置失败，我们可能处于对冲模式，或者不支持设置。
+    // 我们将继续，但会发出警告。
   }
 
-  // Determine safe quantity
-  // Default to min amount or a safe small number
+  // 确定安全数量
+  // 默认为最小金额或一个安全的小数字
   let quantity = market.limits.amount?.min || 0.01;
-  // Boost slightly to avoid "too small" errors if min is strict
+  // 稍微增加一点以避免如果最小值很严格时出现“太小”错误
   quantity = quantity * 1.5;
-  // Format precision
+  // 格式化精度
   quantity = parseFloat(exchange.amountToPrecision(symbol, quantity));
 
-  logger.info(`[Setup] Test Quantity: ${quantity}`);
+  logger.info(`[设置] 测试数量: ${quantity}`);
 
   const executor = new TradeExecutor(exchangeManager);
   const createdOrders: Order[] = [];
 
   try {
-    // --- Test Case 1: Market Buy with TP/SL ---
-    logger.info("\n--- Test Case 1: Market Buy with TP/SL ---");
+    // --- 测试用例 1: 带止盈止损的市价买入 ---
+    logger.info("\n--- 测试用例 1: 带止盈止损的市价买入 ---");
 
-    // TP: +2%, SL: -2%
+    // 止盈: +2%, 止损: -2%
     const tpPrice = parseFloat(
       exchange.priceToPrecision(symbol, currentPrice * 1.02)
     );
@@ -180,7 +176,7 @@ async function runTests() {
       action: "BUY",
       quantity: quantity,
       riskAmount: 10,
-      reason: "Test Real Market Buy",
+      reason: "测试真实市价买入",
       entryOrder: {
         symbol: symbol,
         side: "buy",
@@ -207,12 +203,12 @@ async function runTests() {
 
     const orders1 = await executor.executeTradePlan(plan1);
     createdOrders.push(...orders1);
-    logger.info(`[Test 1] Generated ${orders1.length} orders.`);
+    logger.info(`[测试 1] 已生成 ${orders1.length} 个订单。`);
 
-    // --- Test Case 2: Stop Market Buy (Breakout) ---
-    logger.info("\n--- Test Case 2: Stop Market Buy (Pending Breakout) ---");
+    // --- 测试用例 2: 限价止损买入 (突破) ---
+    logger.info("\n--- 测试用例 2: 限价止损买入 (挂单突破) ---");
 
-    // Entry: +5% (Far away to avoid fill)
+    // 进场: +5% (远离当前价格以避免成交)
     const entryPrice = parseFloat(
       exchange.priceToPrecision(symbol, currentPrice * 1.05)
     );
@@ -228,7 +224,7 @@ async function runTests() {
       action: "BUY",
       quantity: quantity,
       riskAmount: 10,
-      reason: "Test Real Breakout Buy",
+      reason: "测试真实突破买入",
       entryOrder: {
         symbol: symbol,
         side: "buy",
@@ -257,29 +253,27 @@ async function runTests() {
 
     const orders2 = await executor.executeTradePlan(plan2);
     createdOrders.push(...orders2);
-    logger.info(`[Test 2] Generated ${orders2.length} orders.`);
+    logger.info(`[测试 2] 已生成 ${orders2.length} 个订单。`);
   } catch (error: any) {
-    logger.error(`[Test Failed] Error: ${error.message}`);
+    logger.error(`[测试失败] 错误: ${error.message}`);
   } finally {
-    logger.info("\n--- Cleanup Phase ---");
-    logger.info(
-      "Attempting to cancel all created orders and close positions..."
-    );
+    logger.info("\n--- 清理阶段 ---");
+    logger.info("正在尝试取消所有已创建的订单并平仓...");
 
-    // Use the same robust cleanup logic as setup
+    // 使用与设置时相同的稳健清理逻辑
     try {
-      // 1. Cancel Normal Orders
+      // 1. 取消普通订单
       const openOrders = await exchange.fetchOpenOrders(symbol);
       for (const order of openOrders) {
         try {
           await exchange.cancelOrder(order.id, symbol);
-          logger.info(`[Cleanup] Cancelled normal order ${order.id}`);
+          logger.info(`[清理] 已取消普通订单 ${order.id}`);
         } catch (e) {
-          /* ignore */
+          /* 忽略 */
         }
       }
 
-      // 2. Cancel Plan Orders
+      // 2. 取消计划委托订单
       try {
         const planOrders = await exchange.fetchOpenOrders(
           symbol,
@@ -290,16 +284,16 @@ async function runTests() {
         for (const order of planOrders) {
           try {
             await exchange.cancelOrder(order.id, symbol, { stop: true });
-            logger.info(`[Cleanup] Cancelled plan order ${order.id}`);
+            logger.info(`[清理] 已取消计划委托订单 ${order.id}`);
           } catch (e) {
-            /* ignore */
+            /* 忽略 */
           }
         }
       } catch (e) {
-        /* ignore */
+        /* 忽略 */
       }
 
-      // 3. Close Positions
+      // 3. 平仓
       const positions = await exchange.fetchPositions([symbol]);
       const targetPos = positions.filter(
         p => p.symbol === symbol && (p.contracts || 0) > 0
@@ -311,16 +305,16 @@ async function runTests() {
           await exchange.createOrder(symbol, "market", side, size, undefined, {
             reduceOnly: true,
           });
-          logger.info(`[Cleanup] Closed position ${size} ${side}`);
+          logger.info(`[清理] 已平仓 ${size} ${side}`);
         } catch (e: any) {
-          logger.error(`[Cleanup] Failed to close position: ${e.message}`);
+          logger.error(`[清理] 平仓失败: ${e.message}`);
         }
       }
     } catch (e) {
-      logger.error(`[Cleanup] Final cleanup failed: ${e}`);
+      logger.error(`[清理] 最终清理失败: ${e}`);
     }
 
-    logger.info("Test execution finished.");
+    logger.info("测试执行完成。");
   }
 }
 

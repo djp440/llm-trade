@@ -4,35 +4,33 @@ import { logger } from "./utils/logger";
 import { TradeManager } from "./trade-manager";
 
 async function main() {
-  logger.info("Starting LLM-PriceAction-Bot...");
+  logger.info("正在启动 LLM-PriceAction-Bot...");
   logger.info("--------------------------------");
 
   try {
-    // 1. Validate Config
-    logger.info(`Loaded Config:`);
+    // 1. 验证配置
+    logger.info(`已加载配置:`);
     logger.info(
-      `- Exchange: ${config.exchange.id} (Sandbox: ${config.exchange.isSandbox})`
+      `- 交易所: ${config.exchange.id} (沙盒模式: ${config.exchange.isSandbox})`
     );
-    logger.info(`- Strategy: ${config.strategy.timeframe} timeframe`);
+    logger.info(`- 策略: ${config.strategy.timeframe} 时间框架`);
     logger.info(`- LLM: ${config.llm.provider} (${config.llm.model})`);
     logger.info("--------------------------------");
 
-    // 2. Initialize Exchange Manager
+    // 2. 初始化交易所管理器
     const exchangeManager = new ExchangeManager();
 
-    // 3. Test Connection
+    // 3. 测试连接
     await exchangeManager.testConnection();
 
     logger.info("--------------------------------");
-    logger.info(
-      "System initialization check complete. Starting Trading Loops..."
-    );
+    logger.info("系统初始化检查完成。正在启动交易循环...");
 
-    // 4. Start Trading Managers
+    // 4. 启动交易管理器
     const activeSymbols = config.symbols.active;
 
     if (activeSymbols.length === 0) {
-      logger.warn("No active symbols configured in config.toml");
+      logger.warn("config.toml 中未配置活跃交易对");
       return;
     }
 
@@ -40,11 +38,11 @@ async function main() {
       symbol => new TradeManager(symbol, exchangeManager)
     );
 
-    // Run all loops in parallel
-    // We catch individual loop errors inside TradeManager, so this Promise.all should theoretically run forever.
+    // 并行运行所有循环
+    // 我们在 TradeManager 内部捕获单个循环错误，因此 Promise.all 理论上应该永远运行。
     await Promise.all(managers.map(m => m.startLoop()));
   } catch (error) {
-    logger.error("Fatal Error during initialization:", error);
+    logger.error("初始化过程中发生致命错误:", error);
     process.exit(1);
   }
 }

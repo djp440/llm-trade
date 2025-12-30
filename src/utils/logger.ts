@@ -1,86 +1,88 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 class Logger {
-    private logFilePath: string;
+  private logFilePath: string;
 
-    constructor() {
-        // 确保 logs 目录存在
-        const logsDir = path.join(process.cwd(), 'logs');
-        if (!fs.existsSync(logsDir)) {
-            fs.mkdirSync(logsDir, { recursive: true });
-        }
-        
-        // 生成文件名: log_YYYY-MM-DD_HH-mm-ss.log
-        const now = new Date();
-        const timestamp = this.formatDateForFilename(now);
-        this.logFilePath = path.join(logsDir, `log_${timestamp}.log`);
-        
-        // 初始化日志
-        this.write('SYSTEM', `Logger initialized. Log file: ${this.logFilePath}`);
+  constructor() {
+    // 确保 logs 目录存在
+    const logsDir = path.join(process.cwd(), "logs");
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
     }
 
-    /**
-     * 格式化日期用于文件名
-     */
-    private formatDateForFilename(date: Date): string {
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        const yyyy = date.getFullYear();
-        const MM = pad(date.getMonth() + 1);
-        const dd = pad(date.getDate());
-        const HH = pad(date.getHours());
-        const mm = pad(date.getMinutes());
-        const ss = pad(date.getSeconds());
-        return `${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}`;
-    }
+    // 生成文件名: log_YYYY-MM-DD_HH-mm-ss.log
+    const now = new Date();
+    const timestamp = this.formatDateForFilename(now);
+    this.logFilePath = path.join(logsDir, `log_${timestamp}.log`);
 
-    /**
-     * 格式化日志消息
-     */
-    private formatMessage(level: string, message: string): string {
-        const now = new Date().toISOString();
-        return `[${now}] [${level}] ${message}`;
-    }
+    // 初始化日志
+    this.write("SYSTEM", `日志系统已初始化。日志文件: ${this.logFilePath}`);
+  }
 
-    /**
-     * 写入日志到控制台和文件
-     */
-    private write(level: string, message: string) {
-        const formatted = this.formatMessage(level, message);
-        
-        // 控制台输出
-        console.log(formatted);
-        
-        // 文件输出 (同步写入以确保不丢失)
-        try {
-            fs.appendFileSync(this.logFilePath, formatted + '\n');
-        } catch (err) {
-            console.error('Failed to write to log file:', err);
-        }
-    }
+  /**
+   * 格式化日期用于文件名
+   */
+  private formatDateForFilename(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const yyyy = date.getFullYear();
+    const MM = pad(date.getMonth() + 1);
+    const dd = pad(date.getDate());
+    const HH = pad(date.getHours());
+    const mm = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+    return `${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}`;
+  }
 
-    public info(message: string) {
-        this.write('INFO', message);
-    }
+  /**
+   * 格式化日志消息
+   */
+  private formatMessage(level: string, message: string): string {
+    const now = new Date().toISOString();
+    return `[${now}] [${level}] ${message}`;
+  }
 
-    public warn(message: string) {
-        this.write('WARN', message);
-    }
+  /**
+   * 写入日志到控制台和文件
+   */
+  private write(level: string, message: string) {
+    const formatted = this.formatMessage(level, message);
 
-    public error(message: string, error?: any) {
-        let msg = message;
-        if (error) {
-            msg += ` | Error: ${error instanceof Error ? error.message : String(error)}`;
-            if (error instanceof Error && error.stack) {
-                msg += `\nStack: ${error.stack}`;
-            }
-        }
-        this.write('ERROR', msg);
-    }
+    // 控制台输出
+    console.log(formatted);
 
-    public debug(message: string) {
-        this.write('DEBUG', message);
+    // 文件输出 (同步写入以确保不丢失)
+    try {
+      fs.appendFileSync(this.logFilePath, formatted + "\n");
+    } catch (err) {
+      console.error("写入日志文件失败:", err);
     }
+  }
+
+  public info(message: string) {
+    this.write("信息", message);
+  }
+
+  public warn(message: string) {
+    this.write("警告", message);
+  }
+
+  public error(message: string, error?: any) {
+    let msg = message;
+    if (error) {
+      msg += ` | 错误: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      if (error instanceof Error && error.stack) {
+        msg += `\n堆栈: ${error.stack}`;
+      }
+    }
+    this.write("错误", msg);
+  }
+
+  public debug(message: string) {
+    this.write("调试", message);
+  }
 }
 
 // 导出单例

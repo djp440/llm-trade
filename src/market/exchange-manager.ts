@@ -10,7 +10,7 @@ export class ExchangeManager {
     const exchangeClass = (ccxt as any)[exchangeId];
 
     if (!exchangeClass) {
-      throw new Error(`Exchange ${exchangeId} not found in CCXT`);
+      throw new Error(`在 CCXT 中未找到交易所 ${exchangeId}`);
     }
 
     this.exchange = new exchangeClass({
@@ -19,13 +19,13 @@ export class ExchangeManager {
       password: config.exchange.apiPassword,
       enableRateLimit: true,
       options: {
-        defaultType: "swap", // Default to swap/futures for crypto trading usually
+        defaultType: "swap", // 默认进行永续合约交易
       },
     });
 
     if (config.exchange.isSandbox) {
       this.exchange.setSandboxMode(true);
-      console.log(`[ExchangeManager] Sandbox mode enabled for ${exchangeId}`);
+      console.log(`[交易所管理器] ${exchangeId} 已启用沙盒模式`);
     }
   }
 
@@ -35,30 +35,28 @@ export class ExchangeManager {
 
   public async testConnection(): Promise<void> {
     try {
-      logger.info(
-        `[ExchangeManager] Testing connection to ${this.exchange.id}...`
-      );
+      logger.info(`[交易所管理器] 正在测试与 ${this.exchange.id} 的连接...`);
 
-      // Fetch balance is a good way to test auth
+      // 获取余额是测试身份验证的好方法
       const balance = await this.exchange.fetchBalance();
 
-      logger.info(`[ExchangeManager] Connection successful!`);
-      logger.info(`[ExchangeManager] Account Balance (Total):`);
+      logger.info(`[交易所管理器] 连接成功！`);
+      logger.info(`[交易所管理器] 账户余额 (总计):`);
 
-      // Print non-zero balances
+      // 打印非零余额
       let hasBalance = false;
       for (const [currency, amount] of Object.entries(balance.total)) {
-        if (amount && amount > 0) {
+        if (amount && (amount as number) > 0) {
           logger.info(`  - ${currency}: ${amount}`);
           hasBalance = true;
         }
       }
 
       if (!hasBalance) {
-        logger.info(`  (No non-zero balances found)`);
+        logger.info(`  (未发现非零余额)`);
       }
     } catch (error: any) {
-      logger.error(`[ExchangeManager] Connection failed:`, error.message);
+      logger.error(`[交易所管理器] 连接失败:`, error.message);
       throw error;
     }
   }
