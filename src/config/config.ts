@@ -28,6 +28,7 @@ export interface ExecutionConfig {
   slippage_tolerance: number;
   entry_offset_ticks: number;
   min_notional: number;
+  commission_rate_percent: number;
 }
 
 export interface AppConfig {
@@ -86,6 +87,20 @@ export class ConfigLoader {
     // Determine if Sandbox
     const isSandbox = process.env.IS_SANDBOX === "true";
 
+    const rawCommissionRatePercent =
+      tomlConfig.execution?.commission_rate_percent;
+    const commission_rate_percent =
+      typeof rawCommissionRatePercent === "number" &&
+      Number.isFinite(rawCommissionRatePercent)
+        ? rawCommissionRatePercent
+        : 0;
+
+    if (commission_rate_percent < 0 || commission_rate_percent > 100) {
+      logger.warn(
+        `警告: execution.commission_rate_percent 配置无效 (${commission_rate_percent})，已回退为 0。`
+      );
+    }
+
     return {
       exchange: {
         id: process.env.EXCHANGE_ID || "bitget",
@@ -130,6 +145,10 @@ export class ConfigLoader {
         slippage_tolerance: tomlConfig.execution?.slippage_tolerance || 0.001,
         entry_offset_ticks: tomlConfig.execution?.entry_offset_ticks || 1,
         min_notional: tomlConfig.execution?.min_notional || 5.0,
+        commission_rate_percent:
+          commission_rate_percent >= 0 && commission_rate_percent <= 100
+            ? commission_rate_percent
+            : 0,
       },
     };
   }

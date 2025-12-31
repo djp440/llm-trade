@@ -14,6 +14,8 @@ export class LLMService {
   private logInteractions: boolean;
   private includeChart: boolean;
 
+  private static readonly MIN_NET_RR = 2;
+
   constructor() {
     const config = ConfigLoader.getInstance();
     this.openai = new OpenAI({
@@ -132,6 +134,7 @@ ${response}
   ): Promise<TradeSignal> {
     // 1. Generate ASCII Chart
     const config = ConfigLoader.getInstance();
+    const commissionRatePercent = config.execution.commission_rate_percent;
     const asciiChart = this.includeChart
       ? ChartUtils.generateCandlestickChart(
           ohlc,
@@ -153,6 +156,11 @@ ${response}
     const timeframe = ConfigLoader.getInstance().strategy.timeframe;
     const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
 Your goal is to identify high-probability trade setups (>60% win rate) or good risk/reward setups (>1:2) based strictly on Price Action principles.
+
+### FEES (Commission)
+- The user's commission rate is ${commissionRatePercent}% per side.
+- When evaluating profit and risk/reward, you MUST subtract commissions for BOTH entry and exit.
+- If net profit after commissions is <= 0, or net risk/reward is poor (< 1:2), you MUST return REJECT.
 
 ### DATA INPUT FORMAT ("Telescope" Strategy)
 You will receive data in two layers:
@@ -212,6 +220,12 @@ Current Market Context:
 Symbol: ${symbol}
 Account Equity: ${accountEquity}
 Risk Per Trade: ${riskPerTrade}
+Commission Rate (per side, percent): ${commissionRatePercent}
+
+Fee Rule:
+- NetReward = GrossReward - (EntryFee + ExitFee)
+- Fee is charged on notional at both entry and exit.
+- If net profit after entry+exit fees is <= 0, or net R/R < 1:2, return REJECT.
 
 MARKET DATA:
 ${formattedContext}
@@ -254,6 +268,12 @@ Return JSON only.
       );
 
       const signal: TradeSignal = JSON.parse(content);
+
+      const filtered = this.applyCommissionGuard(signal, commissionRatePercent);
+      if (filtered) {
+        return filtered;
+      }
+
       return signal;
     } catch (error: any) {
       logger.error(`[LLM 服务] 分析市场失败: ${error.message}`);
@@ -263,6 +283,72 @@ Return JSON only.
         reason: `LLM 错误: ${error.message}`,
       } as any;
     }
+  }
+
+  private applyCommissionGuard(
+    signal: TradeSignal,
+    commissionRatePercent: number
+  ): TradeSignal | null {
+    if (signal.decision !== "APPROVE" || !signal.action) return null;
+
+    if (
+      typeof signal.entryPrice !== "number" ||
+      typeof signal.stopLoss !== "number" ||
+      typeof signal.takeProfit !== "number" ||
+      !Number.isFinite(signal.entryPrice) ||
+      !Number.isFinite(signal.stopLoss) ||
+      !Number.isFinite(signal.takeProfit)
+    ) {
+      return {
+        ...signal,
+        decision: "REJECT",
+        reason: `信号字段不完整或包含无效数值，已拒绝。原因：${signal.reason}`,
+      };
+    }
+
+    const rate =
+      typeof commissionRatePercent === "number" &&
+      Number.isFinite(commissionRatePercent) &&
+      commissionRatePercent >= 0
+        ? commissionRatePercent / 100
+        : 0;
+
+    const entry = signal.entryPrice;
+    const sl = signal.stopLoss;
+    const tp = signal.takeProfit;
+
+    const isBuy = signal.action === "BUY";
+    const grossReward = isBuy ? tp - entry : entry - tp;
+    const grossRisk = isBuy ? entry - sl : sl - entry;
+
+    if (grossReward <= 0 || grossRisk <= 0) {
+      return {
+        ...signal,
+        decision: "REJECT",
+        reason: `止盈/止损与方向不匹配或盈亏为非正，已拒绝。原因：${signal.reason}`,
+      };
+    }
+
+    const entryFee = entry * rate;
+    const exitFeeTp = tp * rate;
+    const exitFeeSl = sl * rate;
+
+    const netReward = grossReward - (entryFee + exitFeeTp);
+    const netRisk = grossRisk + (entryFee + exitFeeSl);
+    const netRR = netRisk > 0 ? netReward / netRisk : -Infinity;
+
+    if (netReward <= 0 || netRR < LLMService.MIN_NET_RR) {
+      const rrText = Number.isFinite(netRR) ? netRR.toFixed(4) : String(netRR);
+      return {
+        ...signal,
+        decision: "REJECT",
+        reason: `已按佣金费率 ${commissionRatePercent}% 计算净盈亏比后拒绝：净R/R=${rrText}，净收益=${netReward.toFixed(
+          6
+        )}。原因：${signal.reason}`,
+      };
+    }
+
+    return null;
   }
 
   /**

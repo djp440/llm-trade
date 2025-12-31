@@ -26,3 +26,4 @@ active = [
 entry_offset_ticks = 1 # 突破单价格偏移 tick 数
 min_notional = 5.0 # 最小交易名义价值 (USDT)
 slippage_tolerance = 0.001 # 滑点容忍度
+commission_rate_percent = 0.0 # 单边佣金费率（百分比制）。例如 0.04 表示 0.04%
