@@ -18,6 +18,16 @@ export class LLMService {
     this.model = config.llm.model;
   }
 
+  private logTokenUsage(usage: any) {
+    if (!usage) return;
+    const promptK = (usage.prompt_tokens / 1000).toFixed(3);
+    const completionK = (usage.completion_tokens / 1000).toFixed(3);
+    const totalK = (usage.total_tokens / 1000).toFixed(3);
+    logger.info(
+      `[Token统计] 输入: ${promptK}k | 输出: ${completionK}k | 总计: ${totalK}k`
+    );
+  }
+
   private formatOHLCWithEMA(ohlc: OHLC[]): string {
     const ema20 = TechnicalIndicators.calculateEMA(ohlc, 20);
     return ohlc
@@ -156,6 +166,8 @@ Return JSON only.
         response_format: { type: "json_object" },
       });
 
+      this.logTokenUsage(response.usage);
+
       const content = response.choices[0].message.content;
       if (!content) {
         throw new Error("LLM 返回内容为空");
@@ -241,6 +253,8 @@ Should we keep waiting for this breakout, or has the opportunity passed/failed?
         ],
         response_format: { type: "json_object" },
       });
+
+      this.logTokenUsage(response.usage);
 
       const content = response.choices[0].message.content;
       if (!content) throw new Error("Empty LLM response");
