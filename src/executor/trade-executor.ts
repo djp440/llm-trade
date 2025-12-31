@@ -86,7 +86,7 @@ export class TradeExecutor {
       return null;
     }
 
-    // 1. 计算数量 (使用严格的风险计算覆盖 LLM 建议)
+    // 1. 计算数量 (由本地执行器负责，基于风险配置)
     const quantity = this.calculateQuantity(
       symbol,
       equity,

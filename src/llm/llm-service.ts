@@ -141,10 +141,6 @@ TASK:
 3. Evaluate Bar [${ohlc.length - 1}] as the Signal Bar.
 4. Decide if a trade is warranted based on Al Brooks methodology.
    - If "APPROVE", calculate entry, SL, TP.
-   - Calculate 'quantity' to risk exactly ${
-     riskPerTrade * 100
-   }% of Equity based on Stop Loss distance.
-     Quantity = (Equity * ${riskPerTrade}) / |EntryPrice - StopLoss|
 
 Return JSON only.
 `;

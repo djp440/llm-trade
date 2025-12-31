@@ -19,7 +19,6 @@ export interface TradeSignal {
   entryPrice: number;
   stopLoss: number;
   takeProfit: number;
-  quantity: number;
 }
 
 export interface LLMPromptContext {
