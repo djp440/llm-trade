@@ -37,7 +37,6 @@ export interface EnrichedOHLC extends OHLC {
   ema20?: number;
 }
 
-
 export interface LLMPromptContext {
   symbol: string;
   accountEquity: number;
