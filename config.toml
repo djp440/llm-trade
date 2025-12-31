@@ -1,4 +1,5 @@
 [llm]
+include_chart = false # 设置为 false 以禁用 ASCII 图表发送给 LLM
 log_interactions = true # 是否记录LLM交互日志
 
 [strategy]

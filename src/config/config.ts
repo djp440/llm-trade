@@ -38,6 +38,7 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
     logInteractions: boolean;
+    includeChart: boolean;
   };
 
   // TOML Strategy Config
@@ -96,6 +97,7 @@ export class ConfigLoader {
         baseUrl: process.env.LLM_BASE_URL || "https://api.deepseek.com/v1",
         model: process.env.LLM_MODEL || "deepseek-chat",
         logInteractions: tomlConfig.llm?.log_interactions || false,
+        includeChart: tomlConfig.llm?.include_chart ?? true,
       },
       strategy: {
         timeframe: tomlConfig.strategy?.timeframe || "15m",

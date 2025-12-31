@@ -11,6 +11,7 @@ export class LLMService {
   private openai: OpenAI;
   private model: string;
   private logInteractions: boolean;
+  private includeChart: boolean;
 
   constructor() {
     const config = ConfigLoader.getInstance();
@@ -20,6 +21,7 @@ export class LLMService {
     });
     this.model = config.llm.model;
     this.logInteractions = config.llm.logInteractions;
+    this.includeChart = config.llm.includeChart;
   }
 
   /**
@@ -124,7 +126,9 @@ ${response}
     riskPerTrade: number
   ): Promise<TradeSignal> {
     // 1. Generate ASCII Chart
-    const asciiChart = ChartUtils.generateCandlestickChart(ohlc);
+    const asciiChart = this.includeChart
+      ? ChartUtils.generateCandlestickChart(ohlc)
+      : "[ASCII Chart Disabled]";
 
     // 2. Prepare Context (Internal use or logging)
     const context: LLMPromptContext = {
