@@ -167,6 +167,12 @@ Copy-Item config.toml.example config.toml
 - 开发设计文档：[doc/DEV_DOC.md](./doc/DEV_DOC.md)
 - 已完成工作记录：[doc/Completed.md](./doc/Completed.md)
 
+## 未来计划
+
+1. **持仓过程中通过 LLM 动态管理仓位**：在持仓期间，由 LLM 根据最新 K 线动态调整止盈止损或主动减仓/平仓。
+2. **多 Agent 协同分析**：引入多个 Agent（如：趋势专家、波动率专家、宏观专家）共同参与决策，提高信号质量。
+3. **前端面板**：开发 Web 端 UI 面板，实现交易监控、资产统计、策略配置的可视化。
+
 ## License
 
 本项目使用 Apache-2.0 许可证，详见 [LICENSE](./LICENSE)。
