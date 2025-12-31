@@ -87,19 +87,40 @@ export class ConfigLoader {
     // Determine if Sandbox
     const isSandbox = process.env.IS_SANDBOX === "true";
 
-    const rawCommissionRatePercent =
-      tomlConfig.execution?.commission_rate_percent;
-    const commission_rate_percent =
-      typeof rawCommissionRatePercent === "number" &&
-      Number.isFinite(rawCommissionRatePercent)
-        ? rawCommissionRatePercent
-        : 0;
+    const parsePercent = (
+      rawValue: unknown,
+      defaultPercent: number,
+      fieldPath: string
+    ): number => {
+      const percent =
+        typeof rawValue === "number" && Number.isFinite(rawValue)
+          ? rawValue
+          : defaultPercent;
+      if (percent < 0 || percent > 100) {
+        logger.warn(
+          `警告: ${fieldPath} 配置无效 (${percent})，已回退为 ${defaultPercent}。`
+        );
+        return defaultPercent;
+      }
+      return percent;
+    };
 
-    if (commission_rate_percent < 0 || commission_rate_percent > 100) {
-      logger.warn(
-        `警告: execution.commission_rate_percent 配置无效 (${commission_rate_percent})，已回退为 0。`
-      );
-    }
+    const riskPerTradePercent = parsePercent(
+      tomlConfig.strategy?.risk_per_trade,
+      1,
+      "strategy.risk_per_trade"
+    );
+    const slippageTolerancePercent = parsePercent(
+      tomlConfig.execution?.slippage_tolerance,
+      0.1,
+      "execution.slippage_tolerance"
+    );
+
+    const commission_rate_percent = parsePercent(
+      tomlConfig.execution?.commission_rate_percent,
+      0,
+      "execution.commission_rate_percent"
+    );
 
     return {
       exchange: {
@@ -130,7 +151,7 @@ export class ConfigLoader {
       strategy: {
         timeframe: tomlConfig.strategy?.timeframe || "15m",
         lookback_candles: tomlConfig.strategy?.lookback_candles || 20,
-        risk_per_trade: tomlConfig.strategy?.risk_per_trade || 0.01,
+        risk_per_trade: riskPerTradePercent / 100,
         max_open_positions: tomlConfig.strategy?.max_open_positions || 3,
         telescope: {
           micro_count: tomlConfig.strategy?.telescope?.micro_count || 30,
@@ -142,7 +163,7 @@ export class ConfigLoader {
         active: tomlConfig.symbols?.active || [],
       },
       execution: {
-        slippage_tolerance: tomlConfig.execution?.slippage_tolerance || 0.001,
+        slippage_tolerance: slippageTolerancePercent / 100,
         entry_offset_ticks: tomlConfig.execution?.entry_offset_ticks || 1,
         min_notional: tomlConfig.execution?.min_notional || 5.0,
         commission_rate_percent:

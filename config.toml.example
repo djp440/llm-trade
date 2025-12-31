@@ -9,7 +9,7 @@ log_interactions = true # 是否记录LLM交互日志
 [strategy]
 lookback_candles = 192 # 发送给LLM的K线数量
 max_open_positions = 3 # 最大同时持仓币种数
-risk_per_trade = 0.01 # 单笔风险 (账户权益的 1%)
+risk_per_trade = 1.0 # 单笔风险（百分比制）。例如 1 表示 1%
 timeframe = "15m" 
 
 [strategy.telescope]
@@ -25,5 +25,5 @@ active = [
 [execution]
 entry_offset_ticks = 1 # 突破单价格偏移 tick 数
 min_notional = 5.0 # 最小交易名义价值 (USDT)
-slippage_tolerance = 0.001 # 滑点容忍度
+slippage_tolerance = 0.1 # 滑点容忍度（百分比制）。例如 0.1 表示 0.1%
 commission_rate_percent = 0.0 # 单边佣金费率（百分比制）。例如 0.04 表示 0.04%
