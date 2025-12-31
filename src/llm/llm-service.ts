@@ -5,6 +5,7 @@ import { ConfigLoader } from "../config/config";
 import { logger } from "../utils/logger";
 import { TradeSignal, OHLC, LLMPromptContext } from "../types";
 import { ChartUtils } from "../utils/chart-utils";
+import { ContextBuilder } from "./context-builder";
 import { TechnicalIndicators } from "../utils/indicators";
 
 export class LLMService {
@@ -126,8 +127,13 @@ ${response}
     riskPerTrade: number
   ): Promise<TradeSignal> {
     // 1. Generate ASCII Chart
+    const config = ConfigLoader.getInstance();
     const asciiChart = this.includeChart
-      ? ChartUtils.generateCandlestickChart(ohlc)
+      ? ChartUtils.generateCandlestickChart(
+          ohlc,
+          config.llm.chartHeight,
+          config.llm.chartLimit
+        )
       : "[ASCII Chart Disabled]";
 
     // 2. Prepare Context (Internal use or logging)
@@ -144,63 +150,58 @@ ${response}
     const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
 Your goal is to identify high-probability trade setups (>60% win rate) or good risk/reward setups (>1:2) based strictly on Price Action principles.
 
+### DATA INPUT FORMAT ("Telescope" Strategy)
+You will receive data in two layers:
+1. **Macro Context**: Summarized history to understand the big picture (Trend vs Range).
+2. **Micro Action**: Detailed recent bars with pre-calculated Al Brooks features.
+   - \`bar_type\`: "Bull Trend", "Bear Trend", or "Doji".
+   - \`close_strength\`: 0.0 (Low) to 1.0 (High). Indicates buying/selling pressure.
+   - \`ema_relation\`: Position relative to 20 EMA.
+   - \`overlap\`: Market churn/indecision.
+
+**INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags.
+
 ### CORE PHILOSOPHY (Al Brooks)
-1. **Context is King**: Always determine the Market Cycle first (Trend, Trading Range, Breakout Mode).
-2. **Every Tick Matters**: Analyze bar bodies, tails (wicks), and closes relative to the bar range.
-3. **Trader's Equation**: Probability * Reward > (1 - Probability) * Risk.
-4. **20-Period EMA (Exponential Moving Average)**: This is your primary trend reference.
-   - **Gap**: The space between the price and the EMA. In strong trends, a gap is maintained.
-   - **Magnet**: The EMA acts as a magnet. If price gets too far (overextended), it often pulls back to the EMA.
-   - **Trend vs Range**:
-     - Price consistently > EMA = Bull Trend.
-     - Price consistently < EMA = Bear Trend.
-     - Price oscillating around EMA = Trading Range.
+1. **Context is King**: Always determine the Market Cycle first.
+2. **Trader's Equation**: Probability * Reward > (1 - Probability) * Risk.
+3. **20-Period EMA**: Primary trend reference.
+   - Price > EMA = Bullish bias.
+   - Price < EMA = Bearish bias.
 
 ### ANALYSIS FRAMEWORK
 1. **Market Cycle Phase**:
-   - **Strong Trend**: Gaps between bars, strong breakout bars. Price holds above/below EMA. -> *Action*: Enter on Pullbacks to EMA (H1/H2 Bull Flags, L1/L2 Bear Flags).
-   - **Trading Range**: Sideways overlapping bars, prominent tails, price oscillating around EMA. -> *Action*: Buy Low, Sell High (BLSHS). Fade breakouts.
-   - **Trend Channel Line (Overshoot)**: Look for wedges and reversals.
-
+   - **Strong Trend**: Gaps, strong breakout bars. -> *Action*: Enter on Pullbacks (H1/H2, L1/L2).
+   - **Trading Range**: Overlapping bars, Dojis, oscilating around EMA. -> *Action*: Buy Low, Sell High. Fade breakouts.
 2. **Setup Identification**:
-   - **Wedges**: 3 pushes up/down with converging slope. High probability reversal pattern.
-   - **MTR (Major Trend Reversal)**: Break of trend line + test of extreme.
-   - **Double Top/Bottom**: Look for "Twin Peaks" or lower high/higher low variants.
-   - **Final Flag**: Horizontal range after a long trend often leads to reversal.
-
-3. **Signal Bar Evaluation (Crucial)**:
-   - The *last completed bar* is your potential Signal Bar.
-   - **Bull Signal**: Strong body (close > open), close in top 1/3, small top tail.
-   - **Bear Signal**: Strong body (close < open), close in bottom 1/3, small bottom tail.
-   - **Bad Signal**: Dojis, weak closes, large tails against the direction. *Avoid entering on bad signal bars unless limit order scaling in (not recommended here).*
+   - **Wedges**: 3 pushes. Reversal pattern.
+   - **MTR**: Major Trend Reversal.
+   - **Double Top/Bottom**.
+3. **Signal Bar Evaluation**:
+   - Look for high \`close_strength\` in direction of trade.
+   - Avoid entering on Dojis or weak bars unless scaling in.
 
 ### EXECUTION RULES
 - **Order Type**: Primarily **STOP** orders (Breakout entry).
-  - BUY: Place Stop 1 tick above Signal Bar High.
-  - SELL: Place Stop 1 tick below Signal Bar Low.
-- **Stop Loss**:
-  - Beyond the other side of the Signal Bar (1 tick below Low for Buy).
-  - If Signal Bar is huge, use 50% retracement or Measured Move risk.
-- **Take Profit**:
-  - Minimum 1:1 for high probability setups.
-  - Aim for 1:2 for reversal setups.
+  - BUY: 1 tick above Signal Bar High.
+  - SELL: 1 tick below Signal Bar Low.
 
-### OUTPUT FORMAT
-You MUST return a strictly valid JSON object. No markdown, no "Here is the JSON".
-IMPORTANT: The "reason" field MUST be in Simplified Chinese (简体中文). All other fields MUST be in English as specified.
+### OUTPUT FORMAT (Chain of Thought)
+You MUST return a strictly valid JSON object.
 {
+    "analysis_step_1_market_cycle": "String. Determine the phase (Strong Trend, Broad Channel, Trading Range, Breakout Mode). Cite Macro Context.",
+    "analysis_step_2_setup": "String. Identify specific patterns (Wedge, MTR, H1/H2, etc).",
+    "analysis_step_3_signal_bar": "String. Evaluate the last bar using 'close_strength' and 'bar_type'. Is it a strong Signal Bar?",
     "decision": "APPROVE" | "REJECT",
-    "reason": "使用简体中文详细说明原因。包括：市场背景(趋势/区间/EMA位置)、具体形态(楔形/H1/H2/MTR等)、信号K线质量、以及对概率和盈亏比的评估。",
+    "reason": "使用简体中文详细总结上述分析步骤。说明为何批准或拒绝。",
     "action": "BUY" | "SELL",
-    "orderType": "STOP" | "MARKET",
+    "orderType": "STOP",
     "entryPrice": number,
     "stopLoss": number,
-    "takeProfit": number,
-    "quantity": number
+    "takeProfit": number
 }`;
 
-    // Format OHLC for prompt (Compact format to save tokens)
-    const formattedOHLC = this.formatOHLCWithEMA(ohlc);
+    // Format OHLC using ContextBuilder
+    const formattedContext = ContextBuilder.buildContext(ohlc);
 
     const userPrompt = `
 Current Market Context:
@@ -208,20 +209,17 @@ Symbol: ${symbol}
 Account Equity: ${accountEquity}
 Risk Per Trade: ${riskPerTrade}
 
-Recent OHLC Data (Last ${ohlc.length} bars, Index ${
-      ohlc.length - 1
-    } is the most recently CLOSED bar):
-${formattedOHLC}
+MARKET DATA:
+${formattedContext}
 
-ASCII Chart (Visual Representation):
+ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
 ${asciiChart}
 
 TASK:
-1. Analyze the Market Cycle from the chart (Trend vs Range).
-2. Count legs if applicable (Wedge counting, H1/H2 counts).
-3. Evaluate Bar [${ohlc.length - 1}] as the Signal Bar.
-4. Decide if a trade is warranted based on Al Brooks methodology.
-   - If "APPROVE", calculate entry, SL, TP.
+1. Analyze the Market Cycle (Macro & Micro).
+2. Identify Setups.
+3. Evaluate the Signal Bar (Last bar).
+4. Make a Decision.
 
 Return JSON only.
 `;

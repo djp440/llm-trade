@@ -52,6 +52,19 @@ export class TradeExecutor {
       return 0; // 或者如果政策允许则返回最小值，但通常 0 表示跳过
     }
 
+    // Min Notional Check (Safety Check for Bitget/Binance)
+    // Value = Quantity * EntryPrice
+    const estimatedValue = quantity * entryPrice;
+    const MIN_NOTIONAL = config.execution.min_notional;
+    if (estimatedValue < MIN_NOTIONAL) {
+      logger.warn(
+        `[Trade Executor] Trade rejected: Value ${estimatedValue.toFixed(
+          2
+        )} too low for exchange limits (< ${MIN_NOTIONAL} USDT)`
+      );
+      return 0;
+    }
+
     if (market.limits.amount?.max && quantity > market.limits.amount.max) {
       logger.warn(
         `[交易执行器] ${symbol} 计算出的数量 ${quantity} 超过最大限制 ${market.limits.amount.max}。正在进行上限限制。`

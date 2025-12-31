@@ -7,11 +7,17 @@ import { logger } from "../utils/logger";
 // Load environment variables immediately
 dotenv.config();
 
+export interface TelescopeConfig {
+  micro_count: number;
+  macro_group_size: number;
+}
+
 export interface StrategyConfig {
   timeframe: string;
   lookback_candles: number;
   risk_per_trade: number;
   max_open_positions: number;
+  telescope: TelescopeConfig;
 }
 
 export interface SymbolsConfig {
@@ -21,6 +27,7 @@ export interface SymbolsConfig {
 export interface ExecutionConfig {
   slippage_tolerance: number;
   entry_offset_ticks: number;
+  min_notional: number;
 }
 
 export interface AppConfig {
@@ -39,6 +46,8 @@ export interface AppConfig {
     model: string;
     logInteractions: boolean;
     includeChart: boolean;
+    chartLimit: number;
+    chartHeight: number;
   };
 
   // TOML Strategy Config
@@ -98,12 +107,21 @@ export class ConfigLoader {
         model: process.env.LLM_MODEL || "deepseek-chat",
         logInteractions: tomlConfig.llm?.log_interactions || false,
         includeChart: tomlConfig.llm?.include_chart ?? true,
+        chartLimit: tomlConfig.llm?.chart_limit || 48,
+        chartHeight: tomlConfig.llm?.chart_height || 20,
       },
+
+      // TOML Strategy Config
       strategy: {
         timeframe: tomlConfig.strategy?.timeframe || "15m",
         lookback_candles: tomlConfig.strategy?.lookback_candles || 20,
         risk_per_trade: tomlConfig.strategy?.risk_per_trade || 0.01,
         max_open_positions: tomlConfig.strategy?.max_open_positions || 3,
+        telescope: {
+          micro_count: tomlConfig.strategy?.telescope?.micro_count || 30,
+          macro_group_size:
+            tomlConfig.strategy?.telescope?.macro_group_size || 6,
+        },
       },
       symbols: {
         active: tomlConfig.symbols?.active || [],
@@ -111,6 +129,7 @@ export class ConfigLoader {
       execution: {
         slippage_tolerance: tomlConfig.execution?.slippage_tolerance || 0.001,
         entry_offset_ticks: tomlConfig.execution?.entry_offset_ticks || 1,
+        min_notional: tomlConfig.execution?.min_notional || 5.0,
       },
     };
   }

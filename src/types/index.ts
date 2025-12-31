@@ -13,13 +13,30 @@ export interface OHLC {
 
 export interface TradeSignal {
   decision: "APPROVE" | "REJECT";
-  reason: string;
+  analysis_step_1_market_cycle: string;
+  analysis_step_2_setup: string;
+  analysis_step_3_signal_bar: string;
+  reason: string; // Keep for backward compatibility or as a summary
   action?: "BUY" | "SELL";
   orderType: "STOP" | "MARKET";
   entryPrice: number;
   stopLoss: number;
   takeProfit: number;
 }
+
+export interface AlBrooksFeatures {
+  bar_type: "Bull Trend" | "Bear Trend" | "Doji";
+  close_strength: number; // 0.0 - 1.0
+  ema_relation: "Above" | "Below" | "On";
+  vol_spike: boolean;
+  overlap: boolean;
+}
+
+export interface EnrichedOHLC extends OHLC {
+  features?: AlBrooksFeatures;
+  ema20?: number;
+}
+
 
 export interface LLMPromptContext {
   symbol: string;
