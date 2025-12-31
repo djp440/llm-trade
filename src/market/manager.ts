@@ -62,7 +62,8 @@ export class MarketDataManager {
    */
   public async getConfirmedCandles(
     timeframe: string,
-    lookback: number
+    lookback: number,
+    nowMs?: number
   ): Promise<OHLC[]> {
     const rawCandles = await this.fetchOHLC(timeframe, lookback);
 
@@ -74,7 +75,7 @@ export class MarketDataManager {
 
     // 计算预期的理论时间边界
     const durationMs = this.parseTimeframeToMs(timeframe);
-    const now = Date.now();
+    const now = nowMs ?? Date.now();
     // 当前（进行中）K 线插槽的开始时间
     const currentSlotStart = Math.floor(now / durationMs) * durationMs;
 

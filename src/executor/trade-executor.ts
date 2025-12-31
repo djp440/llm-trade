@@ -99,16 +99,14 @@ export class TradeExecutor {
       return null;
     }
 
-    // 1. 计算数量 (由本地执行器负责，基于风险配置)
-    const quantity = this.calculateQuantity(
-      symbol,
-      equity,
-      signal.entryPrice,
-      signal.stopLoss
-    );
-
-    if (quantity <= 0) {
-      logger.warn(`[交易执行器] ${symbol} 数量计算失败或太小`);
+    if (
+      !Number.isFinite(signal.entryPrice) ||
+      !Number.isFinite(signal.stopLoss) ||
+      !Number.isFinite(signal.takeProfit)
+    ) {
+      logger.warn(
+        `[交易执行器] ${symbol} 信号价格包含非数值，已忽略。entry=${signal.entryPrice} sl=${signal.stopLoss} tp=${signal.takeProfit}`
+      );
       return null;
     }
 
@@ -151,8 +149,49 @@ export class TradeExecutor {
     // 买入: 当前 < 进场
     // 卖出: 当前 > 进场
     const isPending = isBuy
-      ? currentPrice < signal.entryPrice
-      : currentPrice > signal.entryPrice;
+      ? currentPrice < adjustedEntryPrice
+      : currentPrice > adjustedEntryPrice;
+
+    const referenceEntryPrice = isPending
+      ? adjustedEntryPrice
+      : this.getEstimatedMarketEntryPrice(currentPrice, isBuy);
+
+    const formattedStopLoss = this.exchange.priceToPrecision(
+      symbol,
+      signal.stopLoss
+    );
+    const formattedTakeProfit = this.exchange.priceToPrecision(
+      symbol,
+      signal.takeProfit
+    );
+    const stopLossPrice = parseFloat(formattedStopLoss);
+    const takeProfitPrice = parseFloat(formattedTakeProfit);
+
+    if (
+      !this.isPriceRelationshipValid(
+        signal.action,
+        referenceEntryPrice,
+        stopLossPrice,
+        takeProfitPrice
+      )
+    ) {
+      logger.warn(
+        `[交易执行器] ${symbol} 信号价格关系无效，已跳过下单。方向=${signal.action} entryRef=${referenceEntryPrice} sl=${stopLossPrice} tp=${takeProfitPrice}`
+      );
+      return null;
+    }
+
+    const quantity = this.calculateQuantity(
+      symbol,
+      equity,
+      referenceEntryPrice,
+      stopLossPrice
+    );
+
+    if (quantity <= 0) {
+      logger.warn(`[交易执行器] ${symbol} 数量计算失败或太小`);
+      return null;
+    }
 
     // 构建进场订单
     const entryOrder: OrderRequest = {
@@ -163,31 +202,18 @@ export class TradeExecutor {
       params: {},
     };
 
-    // 格式化止盈止损价格
-    const formattedStopLoss = this.exchange.priceToPrecision(
-      symbol,
-      signal.stopLoss
-    );
-    const formattedTakeProfit = this.exchange.priceToPrecision(
-      symbol,
-      signal.takeProfit
-    );
-
     // 将止盈止损直接附加到进场订单参数中 (Bitget 专用)
     if (this.exchange.id === "bitget") {
-      const stopLossTriggerPrice = parseFloat(formattedStopLoss);
-      const takeProfitTriggerPrice = parseFloat(formattedTakeProfit);
-
       entryOrder.params = {
         ...entryOrder.params,
         stopLoss: {
-          triggerPrice: stopLossTriggerPrice,
-          price: stopLossTriggerPrice,
+          triggerPrice: stopLossPrice,
+          price: stopLossPrice,
           type: "mark_price",
         },
         takeProfit: {
-          triggerPrice: takeProfitTriggerPrice,
-          price: takeProfitTriggerPrice,
+          triggerPrice: takeProfitPrice,
+          price: takeProfitPrice,
           type: "mark_price",
         },
       };
@@ -210,7 +236,7 @@ export class TradeExecutor {
       side: isBuy ? "sell" : "buy",
       type: "stop_market", // 止损触发时市价执行
       amount: quantity,
-      stopPrice: signal.stopLoss,
+      stopPrice: stopLossPrice,
       params: { reduceOnly: true },
     };
 
@@ -219,7 +245,7 @@ export class TradeExecutor {
       side: isBuy ? "sell" : "buy",
       type: "limit", // 通常止盈是限价单
       amount: quantity,
-      price: signal.takeProfit,
+      price: takeProfitPrice,
       params: { reduceOnly: true },
     };
 
@@ -237,7 +263,7 @@ export class TradeExecutor {
     logger.info(
       `[交易执行器] 已为 ${symbol} 生成计划: ${
         isPending ? "挂单 (突破)" : "市价"
-      } | 数量: ${quantity} | 进场: ${adjustedEntryPrice} | 止损: ${formattedStopLoss} | 止盈: ${formattedTakeProfit}`
+      } | 数量: ${quantity} | 进场参考: ${referenceEntryPrice} | 止损: ${formattedStopLoss} | 止盈: ${formattedTakeProfit}`
     );
 
     return plan;
@@ -354,5 +380,40 @@ export class TradeExecutor {
     }
 
     return orders;
+  }
+
+  private isPriceRelationshipValid(
+    action: "BUY" | "SELL",
+    entryPrice: number,
+    stopLoss: number,
+    takeProfit: number
+  ): boolean {
+    if (
+      !Number.isFinite(entryPrice) ||
+      !Number.isFinite(stopLoss) ||
+      !Number.isFinite(takeProfit)
+    ) {
+      return false;
+    }
+    if (entryPrice <= 0 || stopLoss <= 0 || takeProfit <= 0) {
+      return false;
+    }
+    if (action === "BUY") {
+      return stopLoss < entryPrice && takeProfit > entryPrice;
+    }
+    return takeProfit < entryPrice && stopLoss > entryPrice;
+  }
+
+  private getEstimatedMarketEntryPrice(
+    currentPrice: number,
+    isBuy: boolean
+  ): number {
+    const slippage = config.execution.slippage_tolerance ?? 0;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0)
+      return currentPrice;
+    if (!Number.isFinite(slippage) || slippage <= 0) return currentPrice;
+    return isBuy
+      ? currentPrice * (1 + slippage)
+      : currentPrice * (1 - slippage);
   }
 }

@@ -39,19 +39,21 @@ export class TradeManager {
 
     while (this.isRunning) {
       try {
-        // 计算下一个 K 线收盘的等待时间
         const timeframe = config.strategy.timeframe;
         const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
-        const now = Date.now();
-        // 下一个边界
-        const nextCandleTime = Math.ceil(now / msPerCandle) * msPerCandle;
-        // 添加缓冲（例如 5 秒）以确保交易所已处理收盘
-        const waitTime = nextCandleTime - now + 5000;
+        const closeBufferMs = 5000;
+
+        const nowMs = await this.getReferenceTimeMs();
+        const nextCloseMs = Math.ceil(nowMs / msPerCandle) * msPerCandle;
+        const targetWakeMs = nextCloseMs + closeBufferMs;
+        const waitTime = Math.max(0, targetWakeMs - nowMs);
 
         logger.info(
           `[交易管理器] ${this.symbol} 正在休眠 ${Math.round(
             waitTime / 1000
-          )}秒，直到下一个 K 线收盘...`
+          )}秒，等待 K 线收盘: ${new Date(nextCloseMs).toISOString()} (缓冲 ${Math.round(
+            closeBufferMs / 1000
+          )} 秒)`
         );
 
         // 等待...
@@ -84,16 +86,20 @@ export class TradeManager {
     const timeframe = config.strategy.timeframe;
 
     // 获取确认关闭的 K 线
+    const nowMs = await this.getReferenceTimeMs();
     const candles = await this.marketData.getConfirmedCandles(
       timeframe,
-      lookback
+      lookback,
+      nowMs
     );
     const lastCandle = candles[candles.length - 1];
+    const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
+    const candleCloseMs = lastCandle.timestamp + msPerCandle;
 
     logger.info(
-      `[交易管理器] ${this.symbol} - 分析在 ${new Date(
-        lastCandle.timestamp
-      ).toISOString()} 收盘的 K 线`
+      `[交易管理器] ${this.symbol} - 分析 K 线收盘时间: ${new Date(
+        candleCloseMs
+      ).toISOString()}`
     );
 
     // 2. 获取账户信息
@@ -225,9 +231,11 @@ export class TradeManager {
         );
 
         // 获取最新 K 线
+        const nowMs = await this.getReferenceTimeMs();
         const candles = await this.marketData.getConfirmedCandles(
           config.strategy.timeframe,
-          config.strategy.lookback_candles
+          config.strategy.lookback_candles,
+          nowMs
         );
 
         const decision = await this.llmService.analyzePendingOrder(
@@ -271,5 +279,17 @@ export class TradeManager {
 
   private sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async getReferenceTimeMs(): Promise<number> {
+    try {
+      const serverTime = await this.exchangeManager.getExchange().fetchTime();
+      if (typeof serverTime === "number" && Number.isFinite(serverTime)) {
+        return serverTime;
+      }
+      return Date.now();
+    } catch {
+      return Date.now();
+    }
   }
 }
