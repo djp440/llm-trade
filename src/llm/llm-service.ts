@@ -32,8 +32,12 @@ export class LLMService {
   public async testConnection(): Promise<boolean> {
     try {
       logger.info(`正在测试 LLM 连接 (${this.model})...`);
-      // 尝试列出模型作为连接测试
-      await this.openai.models.list();
+      // 发送简单消息测试连接，限制 max_tokens 以节省成本和避免超时
+      await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 5,
+      });
       logger.info("LLM 连接成功！");
       return true;
     } catch (error: any) {
