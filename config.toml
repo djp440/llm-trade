@@ -7,7 +7,7 @@ timeframe = "5m"
 [symbols]
 # 启用的交易对列表
 active = [
-  "ETH/USDT:USDT",
+  "SOL/USDT:USDT",
 ]
 
 [execution]

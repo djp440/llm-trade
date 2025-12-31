@@ -191,29 +191,12 @@ export class TradeManager {
       // 2. 处理不同状态
       if (order.status === "closed") {
         logger.info(
-          `[交易管理器] ${this.symbol} - 突破单已成交！正在下达止盈止损...`
+          `[交易管理器] ${this.symbol} - 突破单已成交 (Closed/Executed)！`
         );
 
-        // 下达 TP/SL
-        // 注意：这里需要检查是否是对冲模式，之前在 executor 里有逻辑，但这里我们无法直接访问 executor 内部的 isHedgeMode 状态。
-        // 最好的方式是让 executor 处理。
-        // 但 placeRiskOrders 需要 plan。我们有 pendingTradePlan。
-        // 我们假设默认情况或重新检测模式。
-
-        // 为了稳健，再次检查模式
-        let isHedgeMode = false;
-        if (this.exchangeManager.getExchange().id === "bitget") {
-          try {
-            const mode: any = await this.exchangeManager
-              .getExchange()
-              .fetchPositionMode(this.symbol);
-            isHedgeMode = mode.hedged;
-          } catch (e) {
-            logger.warn(`[交易管理器] 获取持仓模式失败: ${e}`);
-          }
-        }
-
-        await this.executor.placeRiskOrders(this.pendingTradePlan, isHedgeMode);
+        // 注意: TP/SL 已在下单时通过 params (stopLoss/takeProfit) 附加。
+        // 因此不需要在此处单独下达风险订单。
+        // 我们只需确认仓位状态（可选），然后切换到管理状态。
 
         // 切换到管理状态
         this.state = TradeState.MANAGING;

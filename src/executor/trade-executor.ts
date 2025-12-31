@@ -147,7 +147,38 @@ export class TradeExecutor {
       side: isBuy ? "buy" : "sell",
       amount: quantity,
       type: isPending ? "stop_market" : "market", // 通常对突破触发使用 stop_market 或 stop_limit
+      params: {},
     };
+
+    // 格式化止盈止损价格
+    const formattedStopLoss = this.exchange.priceToPrecision(
+      symbol,
+      signal.stopLoss
+    );
+    const formattedTakeProfit = this.exchange.priceToPrecision(
+      symbol,
+      signal.takeProfit
+    );
+
+    // 将止盈止损直接附加到进场订单参数中 (Bitget 专用)
+    if (this.exchange.id === "bitget") {
+      const stopLossTriggerPrice = parseFloat(formattedStopLoss);
+      const takeProfitTriggerPrice = parseFloat(formattedTakeProfit);
+
+      entryOrder.params = {
+        ...entryOrder.params,
+        stopLoss: {
+          triggerPrice: stopLossTriggerPrice,
+          price: stopLossTriggerPrice,
+          type: "mark_price",
+        },
+        takeProfit: {
+          triggerPrice: takeProfitTriggerPrice,
+          price: takeProfitTriggerPrice,
+          type: "mark_price",
+        },
+      };
+    }
 
     if (isPending) {
       // 对于 stop_market，需要 'stopPrice' 或 'triggerPrice'。
@@ -159,8 +190,8 @@ export class TradeExecutor {
       entryOrder.price = adjustedEntryPrice; // 仅供参考
     }
 
-    // 构建止盈/止损订单
-    // 这些通常是在进场后下达的 OCO 或只减仓订单
+    // 构建止盈/止损订单 (仅用于记录或非 Bitget 交易所回退)
+    // 注意：如果已在 entryOrder.params 中设置，则不需要单独执行
     const stopLossOrder: OrderRequest = {
       symbol,
       side: isBuy ? "sell" : "buy",
@@ -193,7 +224,7 @@ export class TradeExecutor {
     logger.info(
       `[交易执行器] 已为 ${symbol} 生成计划: ${
         isPending ? "挂单 (突破)" : "市价"
-      } | 数量: ${quantity} | 进场: ${adjustedEntryPrice}`
+      } | 数量: ${quantity} | 进场: ${adjustedEntryPrice} | 止损: ${formattedStopLoss} | 止盈: ${formattedTakeProfit}`
     );
 
     return plan;
@@ -204,7 +235,7 @@ export class TradeExecutor {
     const orders: Order[] = [];
 
     try {
-      // 1. 下达进场订单
+      // 1. 下达进场订单 (携带止盈止损)
       const entry = plan.entryOrder;
       logger.info(
         `[交易执行器] 正在下达进场订单: ${entry.type} ${entry.side} ${
@@ -223,6 +254,11 @@ export class TradeExecutor {
           params["triggerPrice"] = entry.stopPrice;
           params["stopPrice"] = entry.stopPrice;
         }
+
+        if (this.exchange.id === "bitget" && !params["triggerType"]) {
+          params["triggerType"] = "mark_price";
+        }
+
         if (entry.type === "stop_market") {
           price = undefined;
           // For Bitget (and many others via CCXT), 'stop_market' is achieved by sending 'market' + trigger params
@@ -295,146 +331,15 @@ export class TradeExecutor {
 
       if (!order) throw new Error("订单创建意外失败。");
 
-      logger.info(`[交易执行器] 进场订单已下达。ID: ${order.id}`);
+      logger.info(`[交易执行器] 进场订单已下达 (附带 TP/SL)。ID: ${order.id}`);
       orders.push(order);
 
-      // 2. 如果进场是市价单，则下达止盈/止损
-      if (entry.type === "market") {
-        logger.info(
-          "[交易执行器] 市价进场已下达。在下达风险订单前等待 3 秒以确保成交..."
-        );
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // 验证订单状态
-        try {
-          const updatedOrder = await this.exchange.fetchOrder(
-            order.id,
-            entry.symbol
-          );
-          logger.info(
-            `[交易执行器] 进场订单状态: ${updatedOrder.status}, 已成交: ${updatedOrder.filled}`
-          );
-
-          if (
-            updatedOrder.status === "open" &&
-            (!updatedOrder.filled || updatedOrder.filled === 0)
-          ) {
-            logger.warn(
-              "[交易执行器] 进场订单尚未成交。跳过风险订单（或等待更长时间）。"
-            );
-            // 理想情况下我们应该在这里循环等待，但目前只是中止风险订单以避免错误
-            // 或者如果支持的话，我们可以将它们作为 'reduceOnly' 下达，但 'Close' 需要仓位。
-          } else {
-            const riskOrders = await this.placeRiskOrders(plan, isHedgeMode);
-            orders.push(...riskOrders);
-          }
-        } catch (e: any) {
-          logger.warn(`[交易执行器] 获取进场订单状态失败: ${e.message}`);
-          // 仍然尝试下达风险订单？有风险。
-        }
-      } else {
-        logger.info(`[交易执行器] 进场为挂单。止盈/止损应在成交后下达。`);
-      }
+      // 注意: 我们不再需要单独下达风险订单，因为它们已附加到进场订单中
     } catch (error: any) {
       logger.error(`[交易执行器] 执行失败: ${error.message}`);
       throw error;
     }
 
-    return orders;
-  }
-
-  public async placeRiskOrders(
-    plan: TradePlan,
-    isHedgeMode: boolean = false
-  ): Promise<Order[]> {
-    const orders: Order[] = [];
-    try {
-      // 止盈 (限价单或触发单)
-      if (plan.takeProfitOrder) {
-        const tp = plan.takeProfitOrder;
-        logger.info(`[交易执行器] 正在下达止盈: ${tp.price || tp.stopPrice}`);
-
-        const tpParams = {
-          ...tp.params,
-          triggerPrice: tp.stopPrice || tp.params?.triggerPrice, // 确保如果是停止单则设置了 triggerPrice
-          stopPrice: tp.stopPrice || tp.params?.stopPrice,
-        };
-
-        // Bitget V2 模式细节
-        let tpType = tp.type;
-        let tpPrice = tp.price;
-
-        if (this.exchange.id === "bitget") {
-          if (isHedgeMode) {
-            tpParams["tradeSide"] = "Close";
-          } else {
-            // 单向持仓: 无 tradeSide，使用 reduceOnly (通常关闭仓位默认如此，但明确设置更好)
-            if (tpParams["tradeSide"]) delete tpParams["tradeSide"];
-            tpParams["reduceOnly"] = true;
-          }
-
-          if (tp.type === "stop_market") {
-            tpType = "market";
-            tpPrice = undefined;
-          }
-        }
-
-        const order = await this.exchange.createOrder(
-          tp.symbol,
-          tpType,
-          tp.side,
-          tp.amount,
-          tpPrice,
-          tpParams
-        );
-        logger.info(`[交易执行器] 止盈已下达。ID: ${order.id}`);
-        orders.push(order);
-      }
-
-      // 止损 (触发单 - 通常不锁定仓位)
-      if (plan.stopLossOrder) {
-        const sl = plan.stopLossOrder;
-        logger.info(`[交易执行器] 正在下达止损: ${sl.stopPrice}`);
-        const slParams = {
-          ...sl.params,
-          triggerPrice: sl.stopPrice,
-          stopPrice: sl.stopPrice,
-        };
-
-        // Bitget V2 模式细节
-        let slType = sl.type;
-        let slPrice = sl.price;
-
-        if (this.exchange.id === "bitget") {
-          if (isHedgeMode) {
-            slParams["tradeSide"] = "Close";
-          } else {
-            // 单向持仓
-            if (slParams["tradeSide"]) delete slParams["tradeSide"];
-            slParams["reduceOnly"] = true;
-          }
-
-          if (sl.type === "stop_market") {
-            slType = "market";
-            slPrice = undefined;
-          }
-        }
-
-        const order = await this.exchange.createOrder(
-          sl.symbol,
-          slType,
-          sl.side,
-          sl.amount,
-          slPrice,
-          slParams
-        );
-        logger.info(`[交易执行器] 止损已下达。ID: ${order.id}`);
-        orders.push(order);
-      }
-    } catch (error: any) {
-      logger.error(`[交易执行器] 下达风险订单失败: ${error.message}`);
-      throw error;
-    }
     return orders;
   }
 }
