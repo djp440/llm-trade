@@ -61,7 +61,7 @@
     - **场景 A (突破单)**: 若 `CurrentPrice < SignalCandle.High` (做多为例)，在 `SignalCandle.High + 1 tick` 处挂 **止损买入单 (Stop Market/Limit)**。
       - _动作_: 挂单 -> 监听 WebSocket 订单状态。
     - **场景 B (市价追单)**: 若 `CurrentPrice >= SignalCandle.High` (价格已突破)，立即执行 **市价单 (Market Order)** 入场。
-3.  **取消机制**: 若挂出的突破单在下一根 K 线收盘前未成交，则取消订单，重新评估（或根据策略保留）。
+3.  **取消机制**: 若挂出的突破单在下一根 K 线收盘前未成交，则发送消息给LLM请求重新评估是否要保留该突破单。
 
 ### 阶段三：仓位管理 (Position Management)
 

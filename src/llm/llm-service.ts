@@ -3,7 +3,12 @@ import fs from "fs";
 import path from "path";
 import { ConfigLoader } from "../config/config";
 import { logger } from "../utils/logger";
-import { TradeSignal, OHLC, LLMPromptContext } from "../types";
+import {
+  TradeSignal,
+  OHLC,
+  LLMPromptContext,
+  PendingOrderDecision,
+} from "../types";
 import { ChartUtils } from "../utils/chart-utils";
 import { ContextBuilder } from "./context-builder";
 import { TechnicalIndicators } from "../utils/indicators";
@@ -357,88 +362,52 @@ Return JSON only.
   public async analyzePendingOrder(
     symbol: string,
     ohlc: OHLC[],
+    accountEquity: number,
+    riskPerTrade: number,
     pendingOrder: {
       action: "BUY" | "SELL";
       entryPrice: number;
       reason: string;
     }
-  ): Promise<{ decision: "KEEP" | "CANCEL"; reason: string }> {
-    const asciiChart = ChartUtils.generateCandlestickChart(ohlc);
+  ): Promise<PendingOrderDecision> {
+    const signal = await this.analyzeMarket(
+      symbol,
+      ohlc,
+      accountEquity,
+      riskPerTrade
+    );
 
-    const formattedOHLC = this.formatOHLCWithEMA(ohlc);
-
-    const timeframe = ConfigLoader.getInstance().strategy.timeframe;
-    const systemPrompt = `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
-You currently have a **PENDING BREAKOUT ORDER** (Stop Entry) in the market.
-Your goal is to re-evaluate the market structure after the most recent candle close to decide if this order should remain active or be cancelled.
-
-### DECISION FRAMEWORK
-1. **Valid Setup**: If the original setup (e.g., Bull Flag, Wedge) is still valid and the market hasn't invalidated the premise -> **KEEP**.
-2. **Invalidated**: 
-   - If the market moved significantly against the direction -> **CANCEL**.
-   - If the signal bar was a "trap" or the setup failed -> **CANCEL**.
-   - If a better signal has appeared in the opposite direction -> **CANCEL**.
-   - If the breakout didn't trigger within 1-2 candles (depending on context) and momentum is lost -> **CANCEL**.
-3. **20-Period EMA Context**:
-   - Ensure the trend relative to EMA supports the trade direction (unless it's a mean-reversion trade).
-   - Watch for EMA acting as resistance/support against your trade.
-
-### OUTPUT FORMAT
-Strictly JSON.
-IMPORTANT: The "reason" field MUST be in Simplified Chinese (简体中文).
-{
-  "decision": "KEEP" | "CANCEL",
-  "reason": "使用简体中文解释原因。说明市场结构是否发生变化，EMA支撑阻力情况，为何维持或取消订单。"
-}`;
-
-    const userPrompt = `
-Current Market Context:
-Symbol: ${symbol}
-Recent OHLC Data (Last ${ohlc.length} bars):
-${formattedOHLC}
-
-ASCII Chart:
-${asciiChart}
-
-PENDING ORDER DETAILS:
-Type: ${pendingOrder.action} STOP ENTRY
-Entry Price: ${pendingOrder.entryPrice}
-Original Reason: ${pendingOrder.reason}
-
-TASK:
-Analyze the latest candle(s) relative to the pending order.
-Should we keep waiting for this breakout, or has the opportunity passed/failed?
-`;
-
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-      });
-
-      this.logTokenUsage(response.usage);
-
-      const content = response.choices[0].message.content;
-      if (!content) throw new Error("Empty LLM response");
-
-      await this.saveInteractionLog(
-        "PENDING_ORDER",
-        systemPrompt,
-        userPrompt,
-        content
-      );
-
-      return JSON.parse(content);
-    } catch (error: any) {
-      logger.error(
-        `[LLM Service] Failed to analyze pending order: ${error.message}`
-      );
-      // Default to CANCEL on error for safety
-      return { decision: "CANCEL", reason: "LLM Error or Timeout" };
+    if (signal.decision !== "APPROVE" || !signal.action) {
+      return {
+        decision: "CANCEL",
+        reason: `重新评估结果为 REJECT，撤销挂单。原因：${signal.reason}`,
+      };
     }
+
+    if (signal.action !== pendingOrder.action) {
+      return {
+        decision: "CANCEL",
+        reason: `重新评估方向已变化(${signal.action})，撤销原${pendingOrder.action}挂单。原因：${signal.reason}`,
+      };
+    }
+
+    const proposedEntry = signal.entryPrice;
+    const existingEntry = pendingOrder.entryPrice;
+    const denom = existingEntry > 0 ? existingEntry : 1;
+    const relDiff = Math.abs(proposedEntry - existingEntry) / denom;
+
+    if (!Number.isFinite(relDiff) || relDiff > 0.002) {
+      return {
+        decision: "CANCEL",
+        reason: `重新评估的进场价与现有挂单偏离过大(偏离率=${(
+          relDiff * 100
+        ).toFixed(3)}%)，撤销后等待新信号。原因：${signal.reason}`,
+      };
+    }
+
+    return {
+      decision: "KEEP",
+      reason: `重新评估仍然认可该方向与价格区间，继续等待触发。原因：${signal.reason}`,
+    };
   }
 }

@@ -157,11 +157,10 @@ export class TradeManager {
         this.activeOrders.push(...orders);
 
         const entryOrder = orders[0];
-        // 如果是挂单（Open/New），切换到 PENDING_ENTRY
-        if (
-          entryOrder &&
-          (entryOrder.status === "open" || entryOrder.status === "new")
-        ) {
+        const isPendingBreakoutPlan =
+          plan.entryOrder.type === "stop_market" || plan.entryOrder.type === "stop";
+
+        if (entryOrder && isPendingBreakoutPlan) {
           this.state = TradeState.PENDING_ENTRY;
           this.pendingEntryOrder = entryOrder;
           this.pendingTradePlan = plan;
@@ -199,10 +198,43 @@ export class TradeManager {
     );
 
     try {
-      // 1. 获取最新订单状态
-      const order = await this.exchangeManager
-        .getExchange()
-        .fetchOrder(this.pendingEntryOrder.id, this.symbol);
+      const exchange: any = this.exchangeManager.getExchange();
+      const isTriggerOrder =
+        this.pendingTradePlan.entryOrder.type === "stop_market" ||
+        this.pendingTradePlan.entryOrder.type === "stop";
+
+      const orderId = this.pendingEntryOrder.id;
+
+      let order: Order | null = null;
+
+      try {
+        order = await exchange.fetchOrder(orderId, this.symbol, {
+          ...(isTriggerOrder ? { trigger: true, planType: "normal_plan" } : {}),
+        });
+      } catch {
+        try {
+          if (isTriggerOrder) {
+            const open: Order[] = await exchange.fetchOpenOrders(
+              this.symbol,
+              undefined,
+              undefined,
+              { trigger: true, planType: "normal_plan" }
+            );
+            const matched = open.find(o => String(o.id) === String(orderId));
+            if (matched) order = matched;
+          }
+        } catch {
+          order = null;
+        }
+
+        if (!order) {
+          order = await exchange.fetchOrder(orderId, this.symbol);
+        }
+      }
+
+      if (!order) {
+        throw new Error("无法获取挂单状态");
+      }
 
       // 更新本地状态
       this.pendingEntryOrder = order;
@@ -244,6 +276,15 @@ export class TradeManager {
           `[交易管理器] ${this.symbol} - 订单仍挂单中。请求 LLM 重新评估...`
         );
 
+        const balance = await exchange.fetchBalance();
+        const equity = (balance as any).total["USDT"] || 0;
+        if (!equity) {
+          logger.warn(
+            `[交易管理器] ${this.symbol} - 无法获取权益，跳过本轮重新评估。`
+          );
+          return;
+        }
+
         // 获取最新 K 线
         const nowMs = await this.getReferenceTimeMs();
         const candles = await this.marketData.getConfirmedCandles(
@@ -255,6 +296,8 @@ export class TradeManager {
         const decision = await this.llmService.analyzePendingOrder(
           this.symbol,
           candles,
+          equity,
+          config.strategy.risk_per_trade,
           {
             action: this.pendingTradePlan.action,
             entryPrice:
@@ -271,12 +314,25 @@ export class TradeManager {
 
         if (decision.decision === "CANCEL") {
           logger.info(`[交易管理器] ${this.symbol} - 正在取消挂单...`);
-          await this.exchangeManager
-            .getExchange()
-            .cancelOrder(order.id, this.symbol);
-          this.state = TradeState.SEARCHING;
-          this.pendingEntryOrder = null;
-          this.pendingTradePlan = null;
+          try {
+            if (isTriggerOrder) {
+              await exchange.cancelOrder(order.id, this.symbol, {
+                trigger: true,
+                planType: "normal_plan",
+              });
+            } else {
+              await exchange.cancelOrder(order.id, this.symbol);
+            }
+            this.state = TradeState.SEARCHING;
+            this.pendingEntryOrder = null;
+            this.pendingTradePlan = null;
+          } catch (e: any) {
+            logger.error(
+              `[交易管理器] ${this.symbol} - 撤单失败，将继续追踪挂单: ${
+                e?.message || String(e)
+              }`
+            );
+          }
         } else {
           logger.info(
             `[交易管理器] ${this.symbol} - 保持挂单，等待下一根 K 线。`
