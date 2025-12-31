@@ -24,6 +24,7 @@
   "homepage": "https://github.com/djp440/llm-trade#readme",
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@napi-rs/canvas": "^0.1.88",
     "asciichart": "^1.5.25",
     "ccxt": "^4.5.30",
     "dotenv": "^17.2.3",

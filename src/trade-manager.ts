@@ -6,6 +6,7 @@ import { config } from "./config/config";
 import { logger } from "./utils/logger";
 import { TradePlan } from "./types";
 import { Order } from "ccxt";
+import { recordEquityPointAndRenderChart } from "./utils/equity-report";
 
 enum TradeState {
   SEARCHING = "SEARCHING",
@@ -23,6 +24,7 @@ export class TradeManager {
   private activeOrders: Order[] = [];
   private pendingTradePlan: TradePlan | null = null;
   private pendingEntryOrder: Order | null = null;
+  private hasSeenOpenPosition: boolean = false;
 
   constructor(
     private symbol: string,
@@ -39,6 +41,12 @@ export class TradeManager {
 
     while (this.isRunning) {
       try {
+        if (this.state === TradeState.MANAGING) {
+          await this.processManaging();
+          await this.sleep(5000);
+          continue;
+        }
+
         const timeframe = config.strategy.timeframe;
         const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
         const closeBufferMs = 5000;
@@ -51,9 +59,9 @@ export class TradeManager {
         logger.info(
           `[交易管理器] ${this.symbol} 正在休眠 ${Math.round(
             waitTime / 1000
-          )}秒，等待 K 线收盘: ${new Date(nextCloseMs).toISOString()} (缓冲 ${Math.round(
-            closeBufferMs / 1000
-          )} 秒)`
+          )}秒，等待 K 线收盘: ${new Date(
+            nextCloseMs
+          ).toISOString()} (缓冲 ${Math.round(closeBufferMs / 1000)} 秒)`
         );
 
         // 等待...
@@ -161,10 +169,15 @@ export class TradeManager {
             `[交易管理器] ${this.symbol} - 进入 PENDING_ENTRY 状态，等待突破单成交...`
           );
         } else {
-          // 已经成交（市价单），理论上应该进入 MANAGING
-          // 但目前简化处理，暂不改变状态或设为 SEARCHING (如果不持仓)
-          // 实际逻辑中这里应该去监控仓位
-          // this.state = TradeState.MANAGING;
+          if (entryOrder && entryOrder.status === "closed") {
+            this.state = TradeState.MANAGING;
+            this.hasSeenOpenPosition = false;
+            logger.info(
+              `[交易管理器] ${this.symbol} - 已进场，进入 MANAGING 状态，开始监控仓位...`
+            );
+          } else {
+            this.state = TradeState.SEARCHING;
+          }
         }
       } else {
         logger.warn(`[交易管理器] ${this.symbol} - 无法生成有效的交易计划。`);
@@ -206,6 +219,7 @@ export class TradeManager {
 
         // 切换到管理状态
         this.state = TradeState.MANAGING;
+        this.hasSeenOpenPosition = false;
         this.pendingEntryOrder = null;
         this.pendingTradePlan = null;
         return;
@@ -291,5 +305,151 @@ export class TradeManager {
     } catch {
       return Date.now();
     }
+  }
+
+  private async processManaging() {
+    try {
+      const positionSize = await this.getPositionSize(this.symbol);
+      const isOpen = Math.abs(positionSize) > 0;
+
+      if (isOpen) {
+        if (!this.hasSeenOpenPosition) {
+          logger.info(
+            `[交易管理器] ${this.symbol} - 检测到持仓已建立，开始等待止盈/止损完成...`
+          );
+        }
+        this.hasSeenOpenPosition = true;
+        return;
+      }
+
+      if (this.hasSeenOpenPosition) {
+        logger.info(
+          `[交易管理器] ${this.symbol} - 持仓已完全关闭，记录账户权益并生成折线图...`
+        );
+        await this.recordAccountEquitySnapshot();
+      }
+
+      this.hasSeenOpenPosition = false;
+      this.activeOrders = [];
+      this.state = TradeState.SEARCHING;
+    } catch (error: any) {
+      logger.error(
+        `[交易管理器] ${this.symbol} - 管理仓位阶段出错: ${
+          error?.message || String(error)
+        }`
+      );
+    }
+  }
+
+  private async getPositionSize(symbol: string): Promise<number> {
+    const exchange: any = this.exchangeManager.getExchange();
+
+    if (typeof exchange.fetchPositions === "function") {
+      try {
+        const positions = await exchange.fetchPositions([symbol]);
+        const p = Array.isArray(positions)
+          ? positions.find((x: any) => x?.symbol === symbol)
+          : null;
+        return this.extractPositionSize(p);
+      } catch {
+        try {
+          const positions = await exchange.fetchPositions();
+          const p = Array.isArray(positions)
+            ? positions.find((x: any) => x?.symbol === symbol)
+            : null;
+          return this.extractPositionSize(p);
+        } catch {
+          return 0;
+        }
+      }
+    }
+
+    if (typeof exchange.fetchPosition === "function") {
+      try {
+        const p = await exchange.fetchPosition(symbol);
+        return this.extractPositionSize(p);
+      } catch {
+        return 0;
+      }
+    }
+
+    return 0;
+  }
+
+  private extractPositionSize(position: any): number {
+    if (!position) return 0;
+
+    const candidates = [
+      position.contracts,
+      position.contractSize,
+      position.size,
+      position.amount,
+      position?.info?.total,
+      position?.info?.available,
+      position?.info?.pos,
+      position?.info?.position,
+      position?.info?.positionAmt,
+    ];
+
+    for (const c of candidates) {
+      const v = typeof c === "string" ? Number(c) : (c as number);
+      if (Number.isFinite(v) && v !== 0) return v;
+    }
+    return 0;
+  }
+
+  private async recordAccountEquitySnapshot(): Promise<void> {
+    try {
+      const timestampMs = await this.getReferenceTimeMs();
+      const balance = await this.exchangeManager.getExchange().fetchBalance();
+      const equityUsdt = this.extractUsdtEquity(balance);
+
+      await recordEquityPointAndRenderChart({
+        timestampMs,
+        equityUsdt,
+      });
+
+      logger.info(
+        `[交易管理器] ${this.symbol} - 权益快照已记录: ${equityUsdt.toFixed(
+          2
+        )} USDT`
+      );
+    } catch (error: any) {
+      logger.error(
+        `[交易管理器] ${this.symbol} - 记录权益快照失败: ${
+          error?.message || String(error)
+        }`
+      );
+    }
+  }
+
+  private extractUsdtEquity(balance: any): number {
+    const tryPick = (v: any) => {
+      const n = typeof v === "string" ? Number(v) : (v as number);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const total = balance?.total;
+    const direct =
+      tryPick(total?.USDT) ||
+      tryPick(total?.usdt) ||
+      tryPick(total?.["USDT"]) ||
+      tryPick(total?.["usdt"]);
+    if (direct) return direct;
+
+    const usdtBucket = balance?.USDT || balance?.usdt;
+    const bucketTotal = tryPick(usdtBucket?.total);
+    if (bucketTotal) return bucketTotal;
+
+    const free =
+      tryPick(balance?.free?.USDT) ||
+      tryPick(balance?.free?.usdt) ||
+      tryPick(usdtBucket?.free);
+    const used =
+      tryPick(balance?.used?.USDT) ||
+      tryPick(balance?.used?.usdt) ||
+      tryPick(usdtBucket?.used);
+    const sum = free + used;
+    return Number.isFinite(sum) ? sum : 0;
   }
 }
