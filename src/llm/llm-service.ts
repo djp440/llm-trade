@@ -18,6 +18,23 @@ export class LLMService {
     this.model = config.llm.model;
   }
 
+  /**
+   * 测试 LLM 连接
+   * @returns Promise<boolean>
+   */
+  public async testConnection(): Promise<boolean> {
+    try {
+      logger.info(`正在测试 LLM 连接 (${this.model})...`);
+      // 尝试列出模型作为连接测试
+      await this.openai.models.list();
+      logger.info("LLM 连接成功！");
+      return true;
+    } catch (error: any) {
+      logger.error(`LLM 连接失败: ${error.message}`);
+      return false;
+    }
+  }
+
   private logTokenUsage(usage: any) {
     if (!usage) return;
     const promptK = (usage.prompt_tokens / 1000).toFixed(3);

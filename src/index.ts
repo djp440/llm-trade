@@ -1,5 +1,6 @@
 import { config } from "./config/config";
 import { ExchangeManager } from "./market/exchange-manager";
+import { LLMService } from "./llm/llm-service";
 import { logger } from "./utils/logger";
 import { TradeManager } from "./trade-manager";
 
@@ -19,9 +20,15 @@ async function main() {
 
     // 2. 初始化交易所管理器
     const exchangeManager = new ExchangeManager();
+    const llmService = new LLMService();
 
     // 3. 测试连接
     await exchangeManager.testConnection();
+
+    const isLlmConnected = await llmService.testConnection();
+    if (!isLlmConnected) {
+      throw new Error("无法连接到 LLM 服务");
+    }
 
     logger.info("--------------------------------");
     logger.info("系统初始化检查完成。正在启动交易循环...");
