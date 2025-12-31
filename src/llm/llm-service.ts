@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
 import { ConfigLoader } from "../config/config";
 import { logger } from "../utils/logger";
 import { TradeSignal, OHLC, LLMPromptContext } from "../types";
@@ -8,6 +10,7 @@ import { TechnicalIndicators } from "../utils/indicators";
 export class LLMService {
   private openai: OpenAI;
   private model: string;
+  private logInteractions: boolean;
 
   constructor() {
     const config = ConfigLoader.getInstance();
@@ -16,6 +19,7 @@ export class LLMService {
       apiKey: config.llm.apiKey,
     });
     this.model = config.llm.model;
+    this.logInteractions = config.llm.logInteractions;
   }
 
   /**
@@ -43,6 +47,52 @@ export class LLMService {
     logger.info(
       `[Token统计] 输入: ${promptK}k | 输出: ${completionK}k | 总计: ${totalK}k`
     );
+  }
+
+  private async saveInteractionLog(
+    type: string,
+    systemPrompt: string,
+    userPrompt: string,
+    response: string
+  ) {
+    if (!this.logInteractions) return;
+
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const logDir = path.resolve(process.cwd(), "output", "chat");
+
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+
+      const filename = `${timestamp}_${type}.md`;
+      const filePath = path.join(logDir, filename);
+
+      const content = `# LLM Interaction Log - ${type}
+Date: ${new Date().toLocaleString()}
+Model: ${this.model}
+
+## System Prompt
+\`\`\`text
+${systemPrompt}
+\`\`\`
+
+## User Prompt
+\`\`\`text
+${userPrompt}
+\`\`\`
+
+## Response
+\`\`\`json
+${response}
+\`\`\`
+`;
+
+      await fs.promises.writeFile(filePath, content, "utf-8");
+      logger.info(`LLM 交互日志已保存: ${filePath}`);
+    } catch (error: any) {
+      logger.error(`保存 LLM 交互日志失败: ${error.message}`);
+    }
   }
 
   private formatOHLCWithEMA(ohlc: OHLC[]): string {
@@ -190,6 +240,13 @@ Return JSON only.
         throw new Error("LLM 返回内容为空");
       }
 
+      await this.saveInteractionLog(
+        "MARKET_ANALYSIS",
+        systemPrompt,
+        userPrompt,
+        content
+      );
+
       const signal: TradeSignal = JSON.parse(content);
       return signal;
     } catch (error: any) {
@@ -275,6 +332,14 @@ Should we keep waiting for this breakout, or has the opportunity passed/failed?
 
       const content = response.choices[0].message.content;
       if (!content) throw new Error("Empty LLM response");
+
+      await this.saveInteractionLog(
+        "PENDING_ORDER",
+        systemPrompt,
+        userPrompt,
+        content
+      );
+
       return JSON.parse(content);
     } catch (error: any) {
       logger.error(

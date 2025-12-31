@@ -1,3 +1,6 @@
+[llm]
+log_interactions = true # 是否记录LLM交互日志
+
 [strategy]
 lookback_candles = 192 # 发送给LLM的K线数量
 max_open_positions = 3 # 最大同时持仓币种数
