@@ -49,6 +49,9 @@ export interface AppConfig {
     includeChart: boolean;
     chartLimit: number;
     chartHeight: number;
+    temperature?: number;
+    topP?: number;
+    maxTokens?: number;
   };
 
   // TOML Strategy Config
@@ -105,6 +108,40 @@ export class ConfigLoader {
       return percent;
     };
 
+    const parseOptionalNumberInRange = (
+      rawValue: unknown,
+      min: number,
+      max: number,
+      fieldPath: string
+    ): number | undefined => {
+      if (rawValue === undefined || rawValue === null) return undefined;
+      const value =
+        typeof rawValue === "number" && Number.isFinite(rawValue)
+          ? rawValue
+          : NaN;
+      if (!Number.isFinite(value) || value < min || value > max) {
+        logger.warn(`警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`);
+        return undefined;
+      }
+      return value;
+    };
+
+    const parseOptionalPositiveInt = (
+      rawValue: unknown,
+      fieldPath: string
+    ): number | undefined => {
+      if (rawValue === undefined || rawValue === null) return undefined;
+      if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+        logger.warn(`警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`);
+        return undefined;
+      }
+      if (rawValue <= 0) {
+        logger.warn(`警告: ${fieldPath} 配置无效 (${rawValue})，已忽略。`);
+        return undefined;
+      }
+      return Math.floor(rawValue);
+    };
+
     const riskPerTradePercent = parsePercent(
       tomlConfig.strategy?.risk_per_trade,
       1,
@@ -145,6 +182,22 @@ export class ConfigLoader {
         includeChart: tomlConfig.llm?.include_chart ?? true,
         chartLimit: tomlConfig.llm?.chart_limit || 48,
         chartHeight: tomlConfig.llm?.chart_height || 20,
+        temperature: parseOptionalNumberInRange(
+          tomlConfig.llm?.temperature,
+          0,
+          2,
+          "llm.temperature"
+        ),
+        topP: parseOptionalNumberInRange(
+          tomlConfig.llm?.top_p ?? tomlConfig.llm?.topP,
+          0,
+          1,
+          "llm.top_p"
+        ),
+        maxTokens: parseOptionalPositiveInt(
+          tomlConfig.llm?.max_tokens ?? tomlConfig.llm?.maxTokens,
+          "llm.max_tokens"
+        ),
       },
 
       // TOML Strategy Config

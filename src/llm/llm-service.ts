@@ -18,6 +18,9 @@ export class LLMService {
   private model: string;
   private logInteractions: boolean;
   private includeChart: boolean;
+  private temperature?: number;
+  private topP?: number;
+  private maxTokens?: number;
 
   private static readonly MIN_NET_RR = 2;
 
@@ -30,6 +33,9 @@ export class LLMService {
     this.model = config.llm.model;
     this.logInteractions = config.llm.logInteractions;
     this.includeChart = config.llm.includeChart;
+    this.temperature = config.llm.temperature;
+    this.topP = config.llm.topP;
+    this.maxTokens = config.llm.maxTokens;
   }
 
   /**
@@ -265,14 +271,24 @@ Return JSON only.
 
     // 4. 调用 LLM
     try {
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-      });
+      const createParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+        {
+          model: this.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+          ...(this.temperature !== undefined
+            ? { temperature: this.temperature }
+            : {}),
+          ...(this.topP !== undefined ? { top_p: this.topP } : {}),
+          ...(this.maxTokens !== undefined
+            ? { max_tokens: this.maxTokens }
+            : {}),
+        };
+
+      const response = await this.openai.chat.completions.create(createParams);
 
       this.logTokenUsage(response.usage);
 
