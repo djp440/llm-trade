@@ -123,6 +123,22 @@ ${response}
       .join("\n");
   }
 
+  private cleanJsonString(str: string): string {
+    // 尝试提取 JSON 对象部分
+    const firstBrace = str.indexOf("{");
+    const lastBrace = str.lastIndexOf("}");
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      return str.substring(firstBrace, lastBrace + 1);
+    }
+
+    // 如果找不到大括号，尝试移除 markdown 标记作为备选
+    return str
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+  }
+
   /**
    * Analyzes the market data using LLM to generate trade signals.
    * @param symbol Trading pair symbol (e.g., "BTC/USDT")
@@ -272,7 +288,8 @@ Return JSON only.
         content
       );
 
-      const signal: TradeSignal = JSON.parse(content);
+      const cleanedContent = this.cleanJsonString(content);
+      const signal: TradeSignal = JSON.parse(cleanedContent);
 
       const filtered = this.applyCommissionGuard(signal, commissionRatePercent);
       if (filtered) {
