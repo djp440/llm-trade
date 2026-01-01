@@ -45,6 +45,7 @@ export interface AppConfig {
     apiKey: string;
     baseUrl: string;
     model: string;
+    identityRole: string;
     logInteractions: boolean;
     includeChart: boolean;
     chartLimit: number;
@@ -171,6 +172,21 @@ export class ConfigLoader {
       return undefined;
     };
 
+    const parseIdentityRole = (rawValue: unknown): string => {
+      if (rawValue === undefined || rawValue === null) return "daytrader";
+      if (typeof rawValue !== "string") {
+        logger.warn(
+          `警告: llm.identity_role 配置无效 (${String(
+            rawValue
+          )})，已回退为 daytrader。`
+        );
+        return "daytrader";
+      }
+      const trimmed = rawValue.trim();
+      if (!trimmed) return "daytrader";
+      return trimmed;
+    };
+
     const riskPerTradePercent = parsePercent(
       tomlConfig.strategy?.risk_per_trade,
       1,
@@ -207,6 +223,9 @@ export class ConfigLoader {
         apiKey: process.env.LLM_API_KEY || "",
         baseUrl: process.env.LLM_BASE_URL || "https://api.deepseek.com/v1",
         model: process.env.LLM_MODEL || "deepseek-chat",
+        identityRole: parseIdentityRole(
+          tomlConfig.llm?.identity_role ?? tomlConfig.llm?.identityRole
+        ),
         logInteractions: tomlConfig.llm?.log_interactions || false,
         includeChart: tomlConfig.llm?.include_chart ?? true,
         chartLimit: tomlConfig.llm?.chart_limit || 48,
