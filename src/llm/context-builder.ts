@@ -161,7 +161,8 @@ ${microContext}
 
       const startTime = new Date(first.timestamp)
         .toISOString()
-        .substring(11, 16); // HH:MM
+        .substring(5, 16) // MM-DD HH:MM
+        .replace("T", " ");
       // Trend direction in this block
       const change = last.close - first.open;
       const trend = change > 0 ? "UP" : "DOWN";
@@ -176,11 +177,21 @@ ${microContext}
   private static buildMicroContext(data: EnrichedOHLC[]): string {
     return data
       .map((bar, i) => {
-        const time = new Date(bar.timestamp).toISOString().substring(11, 16);
+        const time = new Date(bar.timestamp)
+          .toISOString()
+          .substring(5, 16) // MM-DD HH:MM
+          .replace("T", " ");
         const f = bar.features!;
         const emaStr = bar.ema20 ? bar.ema20.toFixed(2) : "N/A";
 
-        return `Bar[${i}] ${time} | O:${bar.open} H:${bar.high} L:${bar.low} C:${bar.close} | Type:${f.bar_type} Str:${f.close_strength} EMA:${f.ema_relation}(${emaStr}) VolSpike:${f.vol_spike} Overlap:${f.overlap}`;
+        let line = `Bar[${i}] ${time} | O:${bar.open} H:${bar.high} L:${bar.low} C:${bar.close} | Type:${f.bar_type} Str:${f.close_strength} EMA:${f.ema_relation}(${emaStr}) VolSpike:${f.vol_spike} Overlap:${f.overlap}`;
+
+        // Mark the last bar as the Signal Bar
+        if (i === data.length - 1) {
+          line += " <--- CURRENT SIGNAL BAR (LATEST)";
+        }
+
+        return line;
       })
       .join("\n");
   }

@@ -376,12 +376,14 @@ export class LLMService {
 You will receive data in two layers:
 1. **Macro Context**: Summarized history to understand the big picture (Trend vs Range).
 2. **Micro Action**: Detailed recent bars with pre-calculated Al Brooks features.
+   - The list is sorted chronologically: **Oldest -> Newest**.
+   - The **LAST BAR** in the list is the **CURRENT SIGNAL BAR** you must evaluate.
    - \`bar_type\`: "Bull Trend", "Bear Trend", or "Doji".
    - \`close_strength\`: 0.0 (Low) to 1.0 (High). Indicates buying/selling pressure.
    - \`ema_relation\`: Position relative to 20 EMA.
    - \`overlap\`: Market churn/indecision.
 
-**INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags.
+**INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags. Focus on the LATEST bar for signal confirmation.
 
 ### CORE PHILOSOPHY (Al Brooks)
 1. **Context is King**: Always determine the Market Cycle first.
