@@ -58,6 +58,7 @@ export interface AppConfig {
 
   visionLlm: {
     enabled: boolean;
+    useForMain: boolean;
     apiKey: string;
     baseUrl: string;
     model: string;
@@ -263,6 +264,7 @@ export class ConfigLoader {
 
       visionLlm: {
         enabled: process.env.VISION_LLM_ENABLED === "true",
+        useForMain: process.env.VISION_LLM_USE_FOR_MAIN === "true",
         apiKey: process.env.VISION_LLM_API_KEY || process.env.LLM_API_KEY || "",
         baseUrl:
           process.env.VISION_LLM_BASE_URL ||

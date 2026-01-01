@@ -32,6 +32,7 @@ export class LLMService {
   private identityRole: LlmIdentityRole;
 
   private visionEnabled: boolean;
+  private visionUseForMain: boolean;
   private visionOpenai: OpenAI | null;
   private visionModel: string;
   private visionTemperature?: number;
@@ -54,6 +55,7 @@ export class LLMService {
     this.reasoningEffort = config.llm.reasoningEffort;
 
     this.visionEnabled = Boolean(config.visionLlm.enabled);
+    this.visionUseForMain = Boolean(config.visionLlm.useForMain);
     this.visionModel = config.visionLlm.model;
     this.visionTemperature = config.visionLlm.temperature;
     this.visionTopP = config.visionLlm.topP;
@@ -415,6 +417,23 @@ You MUST return a strictly valid JSON object.
         max_tokens: 5,
       });
       logger.llm("LLM 连接成功！");
+
+      if (this.visionUseForMain) {
+        if (!this.visionOpenai || !this.visionModel) {
+          logger.warn(
+            "[LLM 服务] 已配置主分析使用图像识别LLM，但缺少 VISION_LLM_* 配置"
+          );
+          return false;
+        }
+        logger.llm(`正在测试 图像识别LLM 连接 (${this.visionModel})...`);
+        await this.visionOpenai.chat.completions.create({
+          model: this.visionModel,
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 5,
+        });
+        logger.llm("图像识别LLM 连接成功！");
+      }
+
       return true;
     } catch (error: any) {
       logger.error(`LLM 连接失败: ${error.message}`);
@@ -553,29 +572,35 @@ ${response}
     // Format OHLC using ContextBuilder
     const formattedContext = ContextBuilder.buildContext(ohlc);
 
-    let visionPreAnalysis: string | null = null;
-    try {
-      visionPreAnalysis = await this.getVisionPreAnalysisText(
-        symbol,
-        timeframe,
-        ohlc
-      );
-    } catch (error: any) {
-      logger.warn(
-        `[LLM 服务] 图像识别LLM预分析失败，已跳过: ${
-          error?.message || String(error)
-        }`
-      );
-      visionPreAnalysis = null;
-    }
+    const canUseVisionForMain =
+      this.visionEnabled &&
+      this.visionUseForMain &&
+      Boolean(this.visionOpenai) &&
+      Boolean(this.visionModel);
 
-    if (this.visionEnabled) {
+    let visionPreAnalysis: string | null = null;
+    if (this.visionEnabled && !this.visionUseForMain) {
+      try {
+        visionPreAnalysis = await this.getVisionPreAnalysisText(
+          symbol,
+          timeframe,
+          ohlc
+        );
+      } catch (error: any) {
+        logger.warn(
+          `[LLM 服务] 图像识别LLM预分析失败，已跳过: ${
+            error?.message || String(error)
+          }`
+        );
+        visionPreAnalysis = null;
+      }
+
       logger.llm(
         `[LLM 服务] 预分析注入状态: ${visionPreAnalysis ? "已注入" : "未注入"}`
       );
     }
 
-    const userPrompt = `
+    const userPromptTextOnly = `
 Current Market Context:
 Symbol: ${symbol}
 Account Equity: ${accountEquity}
@@ -606,30 +631,102 @@ TASK:
 Return JSON only.
 `;
 
-    // 4. 调用 LLM
+    const userPromptVisionMain = `
+Current Market Context:
+Symbol: ${symbol}
+Account Equity: ${accountEquity}
+Risk Per Trade: ${riskPerTrade}
+Commission Rate (per side, percent): ${commissionRatePercent}
+
+Fee Rule:
+- NetReward = GrossReward - (EntryFee + ExitFee)
+- Fee is charged on notional at both entry and exit.
+- If net profit after entry+exit fees is <= 0, or net R/R < ${minNetRR}, return REJECT.
+
+MARKET DATA:
+${formattedContext}
+
+CHART IMAGE:
+- A candlestick chart image is attached to this request. Read it as the primary visual reference.
+
+ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
+${asciiChart}
+
+TASK:
+1. Analyze the Market Cycle (Macro & Micro) using both the OHLC/context and the chart image.
+2. Identify Setups.
+3. Evaluate the Signal Bar (Last bar).
+4. Make a Decision.
+
+Return JSON only.
+`;
+
     try {
+      const shouldUseVisionMain = canUseVisionForMain;
+
+      const userPrompt = shouldUseVisionMain
+        ? userPromptVisionMain
+        : userPromptTextOnly;
+
+      const client = shouldUseVisionMain ? this.visionOpenai! : this.openai;
+      const model = shouldUseVisionMain ? this.visionModel : this.model;
+
+      let messages: any[];
+      if (shouldUseVisionMain) {
+        const buf = this.renderCandlesToPngBuffer(ohlc);
+        const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+        messages = [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ] as any,
+          },
+        ];
+        logger.llm(`[LLM 服务] 主分析已切换为图像识别LLM (${model})`);
+      } else {
+        messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ];
+      }
+
       const createParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
         {
-          model: this.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          model,
+          messages,
           response_format: { type: "json_object" },
-          ...(this.temperature !== undefined
+          ...(shouldUseVisionMain
+            ? this.visionTemperature !== undefined
+              ? { temperature: this.visionTemperature }
+              : {}
+            : this.temperature !== undefined
             ? { temperature: this.temperature }
             : {}),
-          ...(this.topP !== undefined ? { top_p: this.topP } : {}),
-          ...(this.maxTokens !== undefined
+          ...(shouldUseVisionMain
+            ? this.visionTopP !== undefined
+              ? { top_p: this.visionTopP }
+              : {}
+            : this.topP !== undefined
+            ? { top_p: this.topP }
+            : {}),
+          ...(shouldUseVisionMain
+            ? this.visionMaxTokens !== undefined
+              ? { max_tokens: this.visionMaxTokens }
+              : {}
+            : this.maxTokens !== undefined
             ? { max_tokens: this.maxTokens }
             : {}),
-          ...(this.reasoningEffort !== undefined &&
+          ...(!shouldUseVisionMain &&
+          this.reasoningEffort !== undefined &&
           this.reasoningEffort !== "ignore"
             ? { reasoning_effort: this.reasoningEffort }
             : {}),
         };
 
-      const response = await this.openai.chat.completions.create(createParams);
+      const response = await client.chat.completions.create(createParams);
 
       this.logTokenUsage(response.usage);
 

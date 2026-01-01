@@ -21,6 +21,11 @@ async function main() {
         config.visionLlm.model || "未配置模型"
       })`
     );
+    logger.info(
+      `- 主分析使用图像识别LLM: ${
+        config.visionLlm.enabled && config.visionLlm.useForMain ? "是" : "否"
+      }`
+    );
     logger.info("--------------------------------");
 
     // 2. 初始化交易所管理器
