@@ -288,6 +288,10 @@ export class LLMService {
       return null;
     }
 
+    logger.info(
+      `[LLM 服务] 图像预分析已启用，正在调用图像识别LLM (${this.visionModel})...`
+    );
+
     const buf = this.renderCandlesToPngBuffer(ohlc);
     const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
 
@@ -316,9 +320,13 @@ export class LLMService {
       ],
     });
 
+    this.logTokenUsage(resp.usage);
+
     const text = resp.choices?.[0]?.message?.content;
     if (!text) return null;
-    return text.trim();
+    const trimmed = text.trim();
+    logger.info(`[LLM 服务] 图像预分析完成，文本长度: ${trimmed.length} 字符`);
+    return trimmed;
   }
 
   private getMinNetRR(): number {
@@ -561,6 +569,12 @@ ${response}
       visionPreAnalysis = null;
     }
 
+    if (this.visionEnabled) {
+      logger.info(
+        `[LLM 服务] 预分析注入状态: ${visionPreAnalysis ? "已注入" : "未注入"}`
+      );
+    }
+
     const userPrompt = `
 Current Market Context:
 Symbol: ${symbol}
@@ -583,6 +597,7 @@ ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
 ${asciiChart}
 
 TASK:
+0. Read VISION PRE-ANALYSIS first, then verify it against the OHLC/context.
 1. Analyze the Market Cycle (Macro & Micro).
 2. Identify Setups.
 3. Evaluate the Signal Bar (Last bar).

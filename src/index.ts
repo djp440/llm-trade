@@ -16,6 +16,11 @@ async function main() {
     );
     logger.info(`- 策略: ${config.strategy.timeframe} 时间框架`);
     logger.info(`- LLM: ${config.llm.provider} (${config.llm.model})`);
+    logger.info(
+      `- 图像预分析LLM: ${config.visionLlm.enabled ? "启用" : "禁用"} (${
+        config.visionLlm.model || "未配置模型"
+      })`
+    );
     logger.info("--------------------------------");
 
     // 2. 初始化交易所管理器
