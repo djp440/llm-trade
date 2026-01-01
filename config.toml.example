@@ -8,6 +8,7 @@ log_interactions = true # 是否记录LLM交互日志
 temperature = 0.7 # 0.0-2.0，越低越稳定
 top_p = 1.0 # 0.0-1.0，建议与 temperature 二选一调整
 max_tokens = 1400 # 单次回复最大 token 数，留空则使用服务端默认
+reasoning_effort = "ignore" # ignore|none|low|medium|high；ignore 表示不随请求发送该字段
 
 [strategy]
 lookback_candles = 192 # 发送给LLM的K线数量

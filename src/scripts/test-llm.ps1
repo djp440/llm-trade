@@ -1,0 +1,1 @@
+npx ts-node src/scripts/test-llm-connection.ts

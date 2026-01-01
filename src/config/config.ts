@@ -52,6 +52,7 @@ export interface AppConfig {
     temperature?: number;
     topP?: number;
     maxTokens?: number;
+    reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
   };
 
   // TOML Strategy Config
@@ -120,7 +121,9 @@ export class ConfigLoader {
           ? rawValue
           : NaN;
       if (!Number.isFinite(value) || value < min || value > max) {
-        logger.warn(`警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`);
+        logger.warn(
+          `警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`
+        );
         return undefined;
       }
       return value;
@@ -132,7 +135,9 @@ export class ConfigLoader {
     ): number | undefined => {
       if (rawValue === undefined || rawValue === null) return undefined;
       if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
-        logger.warn(`警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`);
+        logger.warn(
+          `警告: ${fieldPath} 配置无效 (${String(rawValue)})，已忽略。`
+        );
         return undefined;
       }
       if (rawValue <= 0) {
@@ -140,6 +145,30 @@ export class ConfigLoader {
         return undefined;
       }
       return Math.floor(rawValue);
+    };
+
+    const parseReasoningEffort = (
+      rawValue: unknown
+    ): "ignore" | "none" | "low" | "medium" | "high" | undefined => {
+      if (rawValue === undefined || rawValue === null) return undefined;
+      if (typeof rawValue !== "string") {
+        logger.warn(
+          `警告: llm.reasoning_effort 配置无效 (${String(rawValue)})，已忽略。`
+        );
+        return undefined;
+      }
+
+      const normalized = rawValue.trim().toLowerCase();
+      if (normalized === "ignore") return "ignore";
+      if (normalized === "none") return "none";
+      if (normalized === "low") return "low";
+      if (normalized === "medium") return "medium";
+      if (normalized === "high") return "high";
+
+      logger.warn(
+        `警告: llm.reasoning_effort 配置无效 (${rawValue})，已忽略。`
+      );
+      return undefined;
     };
 
     const riskPerTradePercent = parsePercent(
@@ -197,6 +226,9 @@ export class ConfigLoader {
         maxTokens: parseOptionalPositiveInt(
           tomlConfig.llm?.max_tokens ?? tomlConfig.llm?.maxTokens,
           "llm.max_tokens"
+        ),
+        reasoningEffort: parseReasoningEffort(
+          tomlConfig.llm?.reasoning_effort ?? tomlConfig.llm?.reasoningEffort
         ),
       },
 

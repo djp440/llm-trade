@@ -21,6 +21,7 @@ export class LLMService {
   private temperature?: number;
   private topP?: number;
   private maxTokens?: number;
+  private reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
 
   private static readonly MIN_NET_RR = 2;
 
@@ -36,6 +37,7 @@ export class LLMService {
     this.temperature = config.llm.temperature;
     this.topP = config.llm.topP;
     this.maxTokens = config.llm.maxTokens;
+    this.reasoningEffort = config.llm.reasoningEffort;
   }
 
   /**
@@ -285,6 +287,10 @@ Return JSON only.
           ...(this.topP !== undefined ? { top_p: this.topP } : {}),
           ...(this.maxTokens !== undefined
             ? { max_tokens: this.maxTokens }
+            : {}),
+          ...(this.reasoningEffort !== undefined &&
+          this.reasoningEffort !== "ignore"
+            ? { reasoning_effort: this.reasoningEffort }
             : {}),
         };
 
