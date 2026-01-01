@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { createHash } from "crypto";
 import fs from "fs";
 import path from "path";
 import { createCanvas } from "@napi-rs/canvas";
@@ -277,6 +278,23 @@ export class LLMService {
     return canvas.toBuffer("image/png");
   }
 
+  private buildChartImageDataUrl(ohlc: OHLC[]): {
+    dataUrl: string;
+    bytes: number;
+    sha256_12: string;
+    base64Chars: number;
+  } {
+    const buf = this.renderCandlesToPngBuffer(ohlc);
+    const sha256 = createHash("sha256").update(buf).digest("hex");
+    const base64 = buf.toString("base64");
+    return {
+      dataUrl: `data:image/png;base64,${base64}`,
+      bytes: buf.length,
+      sha256_12: sha256.slice(0, 12),
+      base64Chars: base64.length,
+    };
+  }
+
   private async getVisionPreAnalysisText(
     symbol: string,
     timeframe: string,
@@ -294,8 +312,10 @@ export class LLMService {
       `[LLM 服务] 图像预分析已启用，正在调用图像识别LLM (${this.visionModel})...`
     );
 
-    const buf = this.renderCandlesToPngBuffer(ohlc);
-    const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+    const chart = this.buildChartImageDataUrl(ohlc);
+    logger.llm(
+      `[LLM 服务] 已生成K线图像并附加到请求: candles=${ohlc.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
+    );
 
     const systemPrompt = `You are an expert discretionary trader and coach specialized in Al Brooks Price Action.\nYou will be given a standard candlestick chart image (with a time axis and price axes on both sides).\nYour job is NOT to place trades. Your job is to extract the most important price-action signals, structures, and key price levels from the chart, and produce a concise pre-analysis that can be injected into a second LLM's trading decision prompt.\n\nOutput requirements:\n- Output English only.\n- Output plain text only (NO JSON, NO Markdown).\n- Prefer structured bullets/sections, but keep it concise.\n- MUST include:\n  1) Market regime: trend vs trading range vs breakout mode (with justification).\n  2) Key structures: channels, wedges (3-push), double tops/bottoms, failed breakouts, measured move context, etc. If none, say so.\n  3) Key price levels with concrete prices: support/resistance, range boundaries, recent swing highs/lows.\n  4) The most important signal bars in the last 5-10 bars (which bars matter and why).\n  5) 2-4 critical questions the decision LLM must answer before taking a trade.`;
 
@@ -316,7 +336,7 @@ export class LLMService {
           role: "user",
           content: [
             { type: "text", text: userText },
-            { type: "image_url", image_url: { url: dataUrl } },
+            { type: "image_url", image_url: { url: chart.dataUrl } },
           ] as any,
         },
       ],
@@ -673,19 +693,21 @@ Return JSON only.
 
       let messages: any[];
       if (shouldUseVisionMain) {
-        const buf = this.renderCandlesToPngBuffer(ohlc);
-        const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+        const chart = this.buildChartImageDataUrl(ohlc);
         messages = [
           { role: "system", content: systemPrompt },
           {
             role: "user",
             content: [
               { type: "text", text: userPrompt },
-              { type: "image_url", image_url: { url: dataUrl } },
+              { type: "image_url", image_url: { url: chart.dataUrl } },
             ] as any,
           },
         ];
         logger.llm(`[LLM 服务] 主分析已切换为图像识别LLM (${model})`);
+        logger.llm(
+          `[LLM 服务] 已生成K线图像并附加到主分析请求: candles=${ohlc.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
+        );
       } else {
         messages = [
           { role: "system", content: systemPrompt },
