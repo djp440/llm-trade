@@ -123,7 +123,7 @@ export class TradeManager {
 
     // 3. LLM 分析
     const riskPerTrade = config.strategy.risk_per_trade;
-    logger.info(`[交易管理器] ${this.symbol} - 正在请求 LLM 分析...`);
+    logger.llm(`[交易管理器] ${this.symbol} - 正在请求 LLM 分析...`);
 
     const signal = await this.llmService.analyzeMarket(
       this.symbol,
@@ -132,7 +132,7 @@ export class TradeManager {
       riskPerTrade
     );
 
-    logger.info(
+    logger.llm(
       `[交易管理器] ${this.symbol} - LLM 决策: ${signal.decision} (${signal.reason})`
     );
 
@@ -147,7 +147,7 @@ export class TradeManager {
       );
 
       if (plan) {
-        logger.info(
+        logger.important(
           `[交易管理器] ${this.symbol} - 交易计划已生成: ${plan.action} ${
             plan.quantity
           } @ ${plan.entryOrder.price || "市价"}`
@@ -164,14 +164,14 @@ export class TradeManager {
           this.state = TradeState.PENDING_ENTRY;
           this.pendingEntryOrder = entryOrder;
           this.pendingTradePlan = plan;
-          logger.info(
+          logger.important(
             `[交易管理器] ${this.symbol} - 进入 PENDING_ENTRY 状态，等待突破单成交...`
           );
         } else {
           if (entryOrder && entryOrder.status === "closed") {
             this.state = TradeState.MANAGING;
             this.hasSeenOpenPosition = false;
-            logger.info(
+            logger.position(
               `[交易管理器] ${this.symbol} - 已进场，进入 MANAGING 状态，开始监控仓位...`
             );
           } else {
@@ -241,7 +241,7 @@ export class TradeManager {
 
       // 2. 处理不同状态
       if (order.status === "closed") {
-        logger.info(
+        logger.tradeOpen(
           `[交易管理器] ${this.symbol} - 突破单已成交 (Closed/Executed)！`
         );
 
@@ -262,7 +262,7 @@ export class TradeManager {
         order.status === "rejected" ||
         order.status === "expired"
       ) {
-        logger.info(
+        logger.important(
           `[交易管理器] ${this.symbol} - 突破单已取消/拒绝/过期。重置为 SEARCHING。`
         );
         this.state = TradeState.SEARCHING;
@@ -272,7 +272,7 @@ export class TradeManager {
       }
 
       if (order.status === "open" || order.status === "new") {
-        logger.info(
+        logger.llm(
           `[交易管理器] ${this.symbol} - 订单仍挂单中。请求 LLM 重新评估...`
         );
 
@@ -308,12 +308,12 @@ export class TradeManager {
           }
         );
 
-        logger.info(
+        logger.llm(
           `[交易管理器] ${this.symbol} - LLM 对挂单的决策: ${decision.decision} (${decision.reason})`
         );
 
         if (decision.decision === "CANCEL") {
-          logger.info(`[交易管理器] ${this.symbol} - 正在取消挂单...`);
+          logger.important(`[交易管理器] ${this.symbol} - 正在取消挂单...`);
           try {
             if (isTriggerOrder) {
               await exchange.cancelOrder(order.id, this.symbol, {
@@ -370,7 +370,7 @@ export class TradeManager {
 
       if (isOpen) {
         if (!this.hasSeenOpenPosition) {
-          logger.info(
+          logger.position(
             `[交易管理器] ${this.symbol} - 检测到持仓已建立，开始等待止盈/止损完成...`
           );
         }
@@ -379,7 +379,7 @@ export class TradeManager {
       }
 
       if (this.hasSeenOpenPosition) {
-        logger.info(
+        logger.tradeClose(
           `[交易管理器] ${this.symbol} - 持仓已完全关闭，记录账户权益并生成折线图...`
         );
         await this.recordAccountEquitySnapshot();

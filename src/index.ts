@@ -36,7 +36,7 @@ async function main() {
     }
 
     logger.info("--------------------------------");
-    logger.info("系统初始化检查完成。正在启动交易循环...");
+    logger.important("系统初始化检查完成。正在启动交易循环...");
 
     // 4. 启动交易管理器
     const activeSymbols = config.symbols.active;

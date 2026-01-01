@@ -59,6 +59,12 @@ class Logger {
     const YELLOW = "\x1b[33m";
     const CYAN = "\x1b[36m";
     const MAGENTA = "\x1b[35m";
+    const BLUE = "\x1b[34m";
+    const BRIGHT_GREEN = "\x1b[92m";
+    const BRIGHT_MAGENTA = "\x1b[95m";
+    const BRIGHT_YELLOW = "\x1b[93m";
+    const BRIGHT_BLUE = "\x1b[94m";
+    const BOLD = "\x1b[1m";
 
     let color = "";
     switch (level) {
@@ -76,6 +82,21 @@ class Logger {
         break;
       case "SYSTEM":
         color = MAGENTA;
+        break;
+      case "模型":
+        color = BRIGHT_MAGENTA;
+        break;
+      case "开仓":
+        color = BRIGHT_GREEN;
+        break;
+      case "平仓":
+        color = BRIGHT_MAGENTA;
+        break;
+      case "仓位":
+        color = BRIGHT_BLUE;
+        break;
+      case "重要":
+        color = `${BOLD}${BRIGHT_YELLOW}`;
         break;
       default:
         color = "";
@@ -112,6 +133,26 @@ class Logger {
 
   public info(message: string) {
     this.write("信息", message);
+  }
+
+  public important(message: string) {
+    this.write("重要", message);
+  }
+
+  public llm(message: string) {
+    this.write("模型", message);
+  }
+
+  public tradeOpen(message: string) {
+    this.write("开仓", message);
+  }
+
+  public tradeClose(message: string) {
+    this.write("平仓", message);
+  }
+
+  public position(message: string) {
+    this.write("仓位", message);
   }
 
   public warn(message: string) {

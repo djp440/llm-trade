@@ -58,9 +58,9 @@ export class TradeExecutor {
     const MIN_NOTIONAL = config.execution.min_notional;
     if (estimatedValue < MIN_NOTIONAL) {
       logger.warn(
-        `[Trade Executor] Trade rejected: Value ${estimatedValue.toFixed(
+        `[交易执行器] 交易被拒绝：名义价值 ${estimatedValue.toFixed(
           2
-        )} too low for exchange limits (< ${MIN_NOTIONAL} USDT)`
+        )} 低于交易所限制（< ${MIN_NOTIONAL} USDT）`
       );
       return 0;
     }
@@ -260,7 +260,7 @@ export class TradeExecutor {
       reason: signal.reason,
     };
 
-    logger.info(
+    logger.important(
       `[交易执行器] 已为 ${symbol} 生成计划: ${
         isPending ? "挂单 (突破)" : "市价"
       } | 数量: ${quantity} | 进场参考: ${referenceEntryPrice} | 止损: ${formattedStopLoss} | 止盈: ${formattedTakeProfit}`
@@ -270,13 +270,13 @@ export class TradeExecutor {
   }
 
   public async executeTradePlan(plan: TradePlan): Promise<Order[]> {
-    logger.info(`[交易执行器] 正在执行 ${plan.symbol} 的交易计划...`);
+    logger.important(`[交易执行器] 正在执行 ${plan.symbol} 的交易计划...`);
     const orders: Order[] = [];
 
     try {
       // 1. 下达进场订单 (携带止盈止损)
       const entry = plan.entryOrder;
-      logger.info(
+      logger.tradeOpen(
         `[交易执行器] 正在下达进场订单: ${entry.type} ${entry.side} ${
           entry.amount
         } @ ${entry.price || entry.stopPrice || "市价"}`
@@ -370,7 +370,9 @@ export class TradeExecutor {
 
       if (!order) throw new Error("订单创建意外失败。");
 
-      logger.info(`[交易执行器] 进场订单已下达 (附带 TP/SL)。ID: ${order.id}`);
+      logger.tradeOpen(
+        `[交易执行器] 进场订单已下达 (附带 TP/SL)。ID: ${order.id}`
+      );
       orders.push(order);
 
       // 注意: 我们不再需要单独下达风险订单，因为它们已附加到进场订单中

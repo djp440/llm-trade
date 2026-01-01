@@ -288,7 +288,7 @@ export class LLMService {
       return null;
     }
 
-    logger.info(
+    logger.llm(
       `[LLM 服务] 图像预分析已启用，正在调用图像识别LLM (${this.visionModel})...`
     );
 
@@ -325,7 +325,7 @@ export class LLMService {
     const text = resp.choices?.[0]?.message?.content;
     if (!text) return null;
     const trimmed = text.trim();
-    logger.info(`[LLM 服务] 图像预分析完成，文本长度: ${trimmed.length} 字符`);
+    logger.llm(`[LLM 服务] 图像预分析完成，文本长度: ${trimmed.length} 字符`);
     return trimmed;
   }
 
@@ -407,14 +407,14 @@ You MUST return a strictly valid JSON object.
    */
   public async testConnection(): Promise<boolean> {
     try {
-      logger.info(`正在测试 LLM 连接 (${this.model})...`);
+      logger.llm(`正在测试 LLM 连接 (${this.model})...`);
       // 发送简单消息测试连接，限制 max_tokens 以节省成本和避免超时
       await this.openai.chat.completions.create({
         model: this.model,
         messages: [{ role: "user", content: "hi" }],
         max_tokens: 5,
       });
-      logger.info("LLM 连接成功！");
+      logger.llm("LLM 连接成功！");
       return true;
     } catch (error: any) {
       logger.error(`LLM 连接失败: ${error.message}`);
@@ -570,7 +570,7 @@ ${response}
     }
 
     if (this.visionEnabled) {
-      logger.info(
+      logger.llm(
         `[LLM 服务] 预分析注入状态: ${visionPreAnalysis ? "已注入" : "未注入"}`
       );
     }
