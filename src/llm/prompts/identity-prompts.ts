@@ -56,6 +56,15 @@ Style constraints:
   }
 
   return `You are an expert Crypto Day Trader specializing in **Al Brooks Price Action Trading** on ${timeframe} timeframes.
-Your goal is to identify high-probability trade setups (>60% win rate) or good risk/reward setups (>1:2) based strictly on Price Action principles.
+Your goal is to identify high-probability trade setups (>60% win rate) or good risk/reward setups (>1:1.5) based strictly on Price Action principles.
 `;
+}
+
+export function getIdentityRoleRiskParams(role: LlmIdentityRole): {
+  minNetRR: number;
+} {
+  if (role === "scalper") return { minNetRR: 1 };
+  if (role === "swing") return { minNetRR: 1.5 };
+  if (role === "trend") return { minNetRR: 3.0 };
+  return { minNetRR: 2.0 };
 }

@@ -14,6 +14,7 @@ import { ContextBuilder } from "./context-builder";
 import { TechnicalIndicators } from "../utils/indicators";
 import {
   buildIdentitySystemPrompt,
+  getIdentityRoleRiskParams,
   resolveLlmIdentityRole,
   type LlmIdentityRole,
 } from "./prompts/identity-prompts";
@@ -28,8 +29,6 @@ export class LLMService {
   private maxTokens?: number;
   private reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
   private identityRole: LlmIdentityRole;
-
-  private static readonly MIN_NET_RR = 2;
 
   constructor() {
     const config = ConfigLoader.getInstance();
@@ -47,6 +46,10 @@ export class LLMService {
     this.reasoningEffort = config.llm.reasoningEffort;
   }
 
+  private getMinNetRR(): number {
+    return getIdentityRoleRiskParams(this.identityRole).minNetRR;
+  }
+
   private buildSystemPrompt(params: {
     timeframe: string;
     commissionRatePercent: number;
@@ -55,12 +58,14 @@ export class LLMService {
       timeframe: params.timeframe,
     });
 
+    const minNetRR = this.getMinNetRR();
+
     return `${identityPrompt}
 
 ### FEES (Commission)
 - The user's commission rate is ${params.commissionRatePercent}% per side.
 - When evaluating profit and risk/reward, you MUST subtract commissions for BOTH entry and exit.
-- If net profit after commissions is <= 0, or net risk/reward is poor (< 1:2), you MUST return REJECT.
+- If net profit after commissions is <= 0, or net risk/reward is poor (< ${minNetRR}), you MUST return REJECT.
 
 ### DATA INPUT FORMAT ("Telescope" Strategy)
 You will receive data in two layers:
@@ -256,6 +261,7 @@ ${response}
 
     // 3. Construct Prompt
     const timeframe = ConfigLoader.getInstance().strategy.timeframe;
+    const minNetRR = this.getMinNetRR();
     const systemPrompt = this.buildSystemPrompt({
       timeframe,
       commissionRatePercent,
@@ -274,7 +280,7 @@ Commission Rate (per side, percent): ${commissionRatePercent}
 Fee Rule:
 - NetReward = GrossReward - (EntryFee + ExitFee)
 - Fee is charged on notional at both entry and exit.
-- If net profit after entry+exit fees is <= 0, or net R/R < 1:2, return REJECT.
+- If net profit after entry+exit fees is <= 0, or net R/R < ${minNetRR}, return REJECT.
 
 MARKET DATA:
 ${formattedContext}
@@ -401,12 +407,14 @@ Return JSON only.
     const netRisk = grossRisk + (entryFee + exitFeeSl);
     const netRR = netRisk > 0 ? netReward / netRisk : -Infinity;
 
-    if (netReward <= 0 || netRR < LLMService.MIN_NET_RR) {
+    const minNetRR = this.getMinNetRR();
+
+    if (netReward <= 0 || netRR < minNetRR) {
       const rrText = Number.isFinite(netRR) ? netRR.toFixed(4) : String(netRR);
       return {
         ...signal,
         decision: "REJECT",
-        reason: `已按佣金费率 ${commissionRatePercent}% 计算净盈亏比后拒绝：净R/R=${rrText}，净收益=${netReward.toFixed(
+        reason: `已按佣金费率 ${commissionRatePercent}% 计算净盈亏比后拒绝：净R/R=${rrText} (阈值>=${minNetRR})，净收益=${netReward.toFixed(
           6
         )}。原因：${signal.reason}`,
       };
