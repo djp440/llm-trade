@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { createCanvas } from "@napi-rs/canvas";
 import { ConfigLoader } from "../config/config";
 import { logger } from "../utils/logger";
 import {
@@ -30,6 +31,13 @@ export class LLMService {
   private reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
   private identityRole: LlmIdentityRole;
 
+  private visionEnabled: boolean;
+  private visionOpenai: OpenAI | null;
+  private visionModel: string;
+  private visionTemperature?: number;
+  private visionTopP?: number;
+  private visionMaxTokens?: number;
+
   constructor() {
     const config = ConfigLoader.getInstance();
     this.openai = new OpenAI({
@@ -44,6 +52,273 @@ export class LLMService {
     this.topP = config.llm.topP;
     this.maxTokens = config.llm.maxTokens;
     this.reasoningEffort = config.llm.reasoningEffort;
+
+    this.visionEnabled = Boolean(config.visionLlm.enabled);
+    this.visionModel = config.visionLlm.model;
+    this.visionTemperature = config.visionLlm.temperature;
+    this.visionTopP = config.visionLlm.topP;
+    this.visionMaxTokens = config.visionLlm.maxTokens;
+    this.visionOpenai =
+      this.visionEnabled &&
+      config.visionLlm.apiKey &&
+      config.visionLlm.baseUrl &&
+      config.visionLlm.model
+        ? new OpenAI({
+            baseURL: config.visionLlm.baseUrl,
+            apiKey: config.visionLlm.apiKey,
+          })
+        : null;
+  }
+
+  private formatTimeLabel(timestampMs: number): string {
+    const d = new Date(timestampMs);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const HH = String(d.getHours()).padStart(2, "0");
+    const MM = String(d.getMinutes()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd} ${HH}:${MM}`;
+  }
+
+  private getNiceStep(min: number, max: number, tickCount: number): number {
+    const range = Math.max(0, max - min);
+    if (range === 0) return 1;
+    const rough = range / Math.max(1, tickCount - 1);
+    const exponent = Math.floor(Math.log10(rough));
+    const base = Math.pow(10, exponent);
+    const fraction = rough / base;
+
+    let niceFraction = 1;
+    if (fraction <= 1) niceFraction = 1;
+    else if (fraction <= 2) niceFraction = 2;
+    else if (fraction <= 5) niceFraction = 5;
+    else niceFraction = 10;
+
+    return niceFraction * base;
+  }
+
+  private inferDecimals(step: number): number {
+    if (!Number.isFinite(step) || step <= 0) return 2;
+    if (step >= 1) return 2;
+    const decimals = Math.ceil(-Math.log10(step)) + 1;
+    return Math.min(8, Math.max(2, decimals));
+  }
+
+  private renderCandlesToPngBuffer(ohlc: OHLC[]): Buffer {
+    const width = 1200;
+    const height = 700;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+
+    const margin = { left: 100, right: 100, top: 50, bottom: 85 };
+    const plotW = width - margin.left - margin.right;
+    const plotH = height - margin.top - margin.bottom;
+    const left = margin.left;
+    const top = margin.top;
+    const right = left + plotW;
+    const bottom = top + plotH;
+
+    let minY = ohlc.reduce((m, c) => Math.min(m, c.low), Infinity);
+    let maxY = ohlc.reduce((m, c) => Math.max(m, c.high), -Infinity);
+
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      throw new Error("OHLC 价格无效，无法绘图");
+    }
+    if (minY === maxY) {
+      const pad = minY === 0 ? 1 : Math.abs(minY) * 0.01;
+      minY -= pad;
+      maxY += pad;
+    } else {
+      const pad = (maxY - minY) * 0.06;
+      minY -= pad;
+      maxY += pad;
+    }
+
+    const yFor = (price: number) =>
+      top + ((maxY - price) / (maxY - minY)) * plotH;
+    const xForIndex = (i: number) => {
+      if (ohlc.length <= 1) return left + plotW / 2;
+      return left + (i / (ohlc.length - 1)) * plotW;
+    };
+
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(left, top, plotW, plotH);
+
+    const majorTickCount = Math.max(
+      10,
+      Math.min(16, Math.round(plotH / 55) + 1)
+    );
+    const yStep = this.getNiceStep(minY, maxY, majorTickCount);
+    const yDecimals = this.inferDecimals(yStep);
+    const yStart = Math.floor(minY / yStep) * yStep;
+
+    ctx.font = "12px Arial";
+
+    const minorDivisions = 2;
+    const yMinorStep = yStep / minorDivisions;
+    const minorLineCount =
+      Number.isFinite(yMinorStep) && yMinorStep > 0
+        ? (maxY - minY) / yMinorStep
+        : Number.POSITIVE_INFINITY;
+    if (
+      Number.isFinite(yMinorStep) &&
+      yMinorStep > 0 &&
+      Number.isFinite(minorLineCount) &&
+      minorLineCount <= 300
+    ) {
+      const minorStart = Math.floor(minY / yMinorStep) * yMinorStep;
+      ctx.strokeStyle = "#f3f4f6";
+      ctx.lineWidth = 1;
+      for (let v = minorStart; v <= maxY + yMinorStep * 0.5; v += yMinorStep) {
+        if (v < minY - 1e-12) continue;
+        const y = yFor(v);
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+        ctx.stroke();
+      }
+    }
+
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#111827";
+    for (let v = yStart; v <= maxY + yStep * 0.5; v += yStep) {
+      if (v < minY - 1e-12) continue;
+      const y = yFor(v);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.stroke();
+
+      const label = v.toFixed(yDecimals);
+      const textW = ctx.measureText(label).width;
+      ctx.fillText(label, left - 10 - textW, y + 4);
+      ctx.fillText(label, right + 10, y + 4);
+
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left - 6, y);
+      ctx.lineTo(left, y);
+      ctx.moveTo(right, y);
+      ctx.lineTo(right + 6, y);
+      ctx.stroke();
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 1;
+    }
+
+    const perIndexW = plotW / Math.max(1, ohlc.length - 1);
+    const minLabelSpacingPx = 140;
+    const xLabelEvery = Math.max(1, Math.ceil(minLabelSpacingPx / perIndexW));
+
+    ctx.strokeStyle = "#f3f4f6";
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#111827";
+    for (let i = 0; i < ohlc.length; i++) {
+      if (i % xLabelEvery !== 0 && i !== ohlc.length - 1 && i !== 0) continue;
+      const x = xForIndex(i);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, bottom);
+      ctx.lineTo(x, bottom + 6);
+      ctx.stroke();
+      ctx.strokeStyle = "#f3f4f6";
+      ctx.lineWidth = 1;
+
+      const t = this.formatTimeLabel(ohlc[i].timestamp);
+      const w = ctx.measureText(t).width;
+      const yLine = i % (xLabelEvery * 2) === 0 ? bottom + 20 : bottom + 38;
+      const xText = Math.max(0, Math.min(width - w, x - w / 2));
+      ctx.fillText(t, xText, yLine);
+    }
+
+    const candlePixelSpan = plotW / Math.max(1, ohlc.length);
+    const bodyW = Math.max(2, Math.floor(candlePixelSpan * 0.6));
+    const wickW = Math.max(1, Math.floor(bodyW / 3));
+
+    for (let i = 0; i < ohlc.length; i++) {
+      const c = ohlc[i];
+      const x = xForIndex(i);
+      const yHigh = yFor(c.high);
+      const yLow = yFor(c.low);
+      const yOpen = yFor(c.open);
+      const yClose = yFor(c.close);
+      const isBull = c.close >= c.open;
+
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = wickW;
+      ctx.beginPath();
+      ctx.moveTo(x, yHigh);
+      ctx.lineTo(x, yLow);
+      ctx.stroke();
+
+      const bodyTop = Math.min(yOpen, yClose);
+      const bodyBottom = Math.max(yOpen, yClose);
+      const bodyH = Math.max(1, bodyBottom - bodyTop);
+      ctx.fillStyle = isBull ? "#16a34a" : "#dc2626";
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 1;
+      ctx.fillRect(x - bodyW / 2, bodyTop, bodyW, bodyH);
+      ctx.strokeRect(x - bodyW / 2, bodyTop, bodyW, bodyH);
+    }
+
+    return canvas.toBuffer("image/png");
+  }
+
+  private async getVisionPreAnalysisText(
+    symbol: string,
+    timeframe: string,
+    ohlc: OHLC[]
+  ): Promise<string | null> {
+    if (!this.visionEnabled) return null;
+    if (!this.visionOpenai || !this.visionModel) {
+      logger.warn(
+        "[LLM 服务] 已启用图像识别LLM，但缺少配置（VISION_LLM_API_KEY / VISION_LLM_BASE_URL / VISION_LLM_MODEL）"
+      );
+      return null;
+    }
+
+    const buf = this.renderCandlesToPngBuffer(ohlc);
+    const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+
+    const systemPrompt = `You are an expert discretionary trader and coach specialized in Al Brooks Price Action.\nYou will be given a standard candlestick chart image (with a time axis and price axes on both sides).\nYour job is NOT to place trades. Your job is to extract the most important price-action signals, structures, and key price levels from the chart, and produce a concise pre-analysis that can be injected into a second LLM's trading decision prompt.\n\nOutput requirements:\n- Output English only.\n- Output plain text only (NO JSON, NO Markdown).\n- Prefer structured bullets/sections, but keep it concise.\n- MUST include:\n  1) Market regime: trend vs trading range vs breakout mode (with justification).\n  2) Key structures: channels, wedges (3-push), double tops/bottoms, failed breakouts, measured move context, etc. If none, say so.\n  3) Key price levels with concrete prices: support/resistance, range boundaries, recent swing highs/lows.\n  4) The most important signal bars in the last 5-10 bars (which bars matter and why).\n  5) 2-4 critical questions the decision LLM must answer before taking a trade.`;
+
+    const userText = `Symbol: ${symbol}\nTimeframe: ${timeframe}\nCandles: ${ohlc.length}\n\nGenerate the pre-analysis from the chart image:`;
+
+    const resp = await this.visionOpenai.chat.completions.create({
+      model: this.visionModel,
+      ...(this.visionTemperature !== undefined
+        ? { temperature: this.visionTemperature }
+        : {}),
+      ...(this.visionTopP !== undefined ? { top_p: this.visionTopP } : {}),
+      ...(this.visionMaxTokens !== undefined
+        ? { max_tokens: this.visionMaxTokens }
+        : {}),
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ] as any,
+        },
+      ],
+    });
+
+    const text = resp.choices?.[0]?.message?.content;
+    if (!text) return null;
+    return text.trim();
   }
 
   private getMinNetRR(): number {
@@ -270,6 +545,22 @@ ${response}
     // Format OHLC using ContextBuilder
     const formattedContext = ContextBuilder.buildContext(ohlc);
 
+    let visionPreAnalysis: string | null = null;
+    try {
+      visionPreAnalysis = await this.getVisionPreAnalysisText(
+        symbol,
+        timeframe,
+        ohlc
+      );
+    } catch (error: any) {
+      logger.warn(
+        `[LLM 服务] 图像识别LLM预分析失败，已跳过: ${
+          error?.message || String(error)
+        }`
+      );
+      visionPreAnalysis = null;
+    }
+
     const userPrompt = `
 Current Market Context:
 Symbol: ${symbol}
@@ -284,6 +575,9 @@ Fee Rule:
 
 MARKET DATA:
 ${formattedContext}
+
+VISION PRE-ANALYSIS (from candlestick chart image):
+${visionPreAnalysis || "(disabled or unavailable)"}
 
 ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
 ${asciiChart}
