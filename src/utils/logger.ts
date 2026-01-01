@@ -45,11 +45,62 @@ class Logger {
   /**
    * 写入日志到控制台和文件
    */
+  private isColorEnabled(): boolean {
+    const forceColor = process.env.FORCE_COLOR;
+    if (forceColor && forceColor !== "0") return true;
+    if (process.env.NO_COLOR !== undefined) return false;
+    return Boolean(process.stdout.isTTY);
+  }
+
+  private colorize(level: string, text: string): string {
+    const RESET = "\x1b[0m";
+    const GRAY = "\x1b[90m";
+    const RED = "\x1b[31m";
+    const YELLOW = "\x1b[33m";
+    const CYAN = "\x1b[36m";
+    const MAGENTA = "\x1b[35m";
+
+    let color = "";
+    switch (level) {
+      case "错误":
+        color = RED;
+        break;
+      case "警告":
+        color = YELLOW;
+        break;
+      case "信息":
+        color = CYAN;
+        break;
+      case "调试":
+        color = GRAY;
+        break;
+      case "SYSTEM":
+        color = MAGENTA;
+        break;
+      default:
+        color = "";
+        break;
+    }
+
+    if (!color) return text;
+    return `${color}${text}${RESET}`;
+  }
+
   private write(level: string, message: string) {
     const formatted = this.formatMessage(level, message);
 
+    const consoleMessage = this.isColorEnabled()
+      ? this.colorize(level, formatted)
+      : formatted;
+
     // 控制台输出
-    console.log(formatted);
+    if (level === "错误") {
+      console.error(consoleMessage);
+    } else if (level === "警告") {
+      console.warn(consoleMessage);
+    } else {
+      console.log(consoleMessage);
+    }
 
     // 文件输出 (同步写入以确保不丢失)
     try {
