@@ -52,7 +52,7 @@ export class TradeManager {
 
         const timeframe = config.strategy.timeframes.trading.interval;
         const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
-        const closeBufferMs = 500;
+        const closeBufferMs = 2000;
 
         const nowMs = await this.getReferenceTimeMs();
         const nextCloseMs = Math.ceil(nowMs / msPerCandle) * msPerCandle;
