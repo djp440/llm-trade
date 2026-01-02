@@ -721,7 +721,10 @@ Provide a concise summary of the visual structure.
     trendData: OHLC[],
     accountEquity: number,
     riskPerTrade: number,
-    options?: { enableImageAnalysis?: boolean }
+    options?: {
+      enableImageAnalysis?: boolean;
+      timeframes?: { trading: string; context: string; trend: string };
+    }
   ): Promise<TradeSignal> {
     const config = ConfigLoader.getInstance();
     const commissionRatePercent = config.execution.commission_rate_percent;
@@ -735,7 +738,13 @@ Provide a concise summary of the visual structure.
     };
 
     // 3. Construct Prompt
-    const timeframe = config.strategy.timeframes.trading.interval;
+    const timeframes = options?.timeframes || {
+      trading: config.strategy.timeframes.trading.interval,
+      context: config.strategy.timeframes.context.interval,
+      trend: config.strategy.timeframes.trend.interval,
+    };
+
+    const timeframe = timeframes.trading;
     const minNetRR = this.getMinNetRR();
     const systemPrompt = this.buildSystemPrompt({
       timeframe,
@@ -747,11 +756,7 @@ Provide a concise summary of the visual structure.
       tradingData,
       contextData,
       trendData,
-      {
-        trading: config.strategy.timeframes.trading.interval,
-        context: config.strategy.timeframes.context.interval,
-        trend: config.strategy.timeframes.trend.interval,
-      }
+      timeframes
     );
 
     let imageAnalysisResult = "";

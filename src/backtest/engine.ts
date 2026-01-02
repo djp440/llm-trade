@@ -304,7 +304,10 @@ export class BacktestEngine {
         trendData,
         accountState.equity,
         0.01, // 1% risk
-        { enableImageAnalysis: this.config.enableImageAnalysis }
+        {
+          enableImageAnalysis: this.config.enableImageAnalysis,
+          timeframes: this.config.timeframes,
+        }
       );
 
       if (signal.decision === "APPROVE") {
