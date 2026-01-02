@@ -424,6 +424,10 @@ You will receive data in up to three layers:
 ### OUTPUT FORMAT (Chain of Thought)
 You MUST return a strictly valid JSON object.
 {
+    "analysis_step_0_visual": "String. If Image provided: Describe visual structure, key levels, and patterns. If No Image: 'No image provided'.",
+    "analysis_step_1_market_cycle": "String. Determine the phase (Strong Trend, Broad Channel, Trading Range, Breakout Mode). Cite Macro Context.",
+    "analysis_step_2_setup": "String. Identify specific patterns (Wedge, MTR, H1/H2, etc).",
+    "analysis_step_3_signal_bar": "String. Evaluate the last bar using 'close_strength' and 'bar_type'. Is it a strong Signal Bar?",
     "decision": "APPROVE" | "REJECT",
     "reason": "使用简体中文总结您的分析步骤。说明为何批准或拒绝。",
     "action": "BUY" | "SELL",
