@@ -472,14 +472,16 @@ You MUST return a JSON object.
     }
   }
 
-  private logTokenUsage(usage: any) {
+  private logTokenUsage(usage: any, durationMs?: number) {
     if (!usage) return;
     const promptK = (usage.prompt_tokens / 1000).toFixed(3);
     const completionK = (usage.completion_tokens / 1000).toFixed(3);
     const totalK = (usage.total_tokens / 1000).toFixed(3);
-    logger.info(
-      `[Token统计] 输入: ${promptK}k | 输出: ${completionK}k | 总计: ${totalK}k`
-    );
+    let logMsg = `[Token统计] 输入: ${promptK}k | 输出: ${completionK}k | 总计: ${totalK}k`;
+    if (durationMs !== undefined) {
+      logMsg += ` | 耗时: ${durationMs}ms`;
+    }
+    logger.info(logMsg);
   }
 
   private async saveInteractionLog(
@@ -771,8 +773,10 @@ Return JSON only.
       while (true) {
         attempts++;
         try {
+          const startTime = Date.now();
           response = await client.chat.completions.create(createParams);
-          this.logTokenUsage(response.usage);
+          const duration = Date.now() - startTime;
+          this.logTokenUsage(response.usage, duration);
 
           if (!response.choices || !response.choices.length) {
             throw new Error(
