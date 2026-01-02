@@ -418,7 +418,11 @@ async function main() {
         nextCloseMs
       ).toISOString()} (缓冲 ${Math.round(bufferMs / 1000)} 秒)`
     );
-    await sleep(waitTime);
+    if (!opts.offline) {
+        await sleep(waitTime);
+    } else {
+        logger.info("[测试脚本] 离线模式，跳过等待。");
+    }
 
     const refNowMs = opts.offline
       ? Date.now()
