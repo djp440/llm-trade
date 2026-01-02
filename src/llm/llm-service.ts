@@ -654,9 +654,9 @@ Return JSON only.
           ...(this.maxTokens !== undefined
             ? { max_tokens: this.maxTokens }
             : {}),
-          ...(!shouldUseVisionMain &&
-          this.reasoningEffort !== undefined &&
-          this.reasoningEffort !== "ignore"
+          ...(this.reasoningEffort !== undefined &&
+          this.reasoningEffort !== "ignore" &&
+          this.reasoningEffort !== "none"
             ? { reasoning_effort: this.reasoningEffort }
             : {}),
         };
