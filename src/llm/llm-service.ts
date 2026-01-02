@@ -11,7 +11,6 @@ import {
   LLMPromptContext,
   PendingOrderDecision,
 } from "../types";
-import { ChartUtils } from "../utils/chart-utils";
 import { ContextBuilder } from "./context-builder";
 import { TechnicalIndicators } from "../utils/indicators";
 import {
@@ -25,7 +24,6 @@ export class LLMService {
   private openai: OpenAI;
   private model: string;
   private logInteractions: boolean;
-  private includeChart: boolean;
   private temperature?: number;
   private topP?: number;
   private maxTokens?: number;
@@ -45,7 +43,6 @@ export class LLMService {
     this.model = config.llm.model;
     this.identityRole = resolveLlmIdentityRole(config.llm.identityRole);
     this.logInteractions = config.llm.logInteractions;
-    this.includeChart = config.llm.includeChart;
     this.temperature = config.llm.temperature;
     this.topP = config.llm.topP;
     this.maxTokens = config.llm.maxTokens;
@@ -535,16 +532,8 @@ ${response}
     accountEquity: number,
     riskPerTrade: number
   ): Promise<TradeSignal> {
-    // 1. Generate ASCII Chart
     const config = ConfigLoader.getInstance();
     const commissionRatePercent = config.execution.commission_rate_percent;
-    const asciiChart = this.includeChart
-      ? ChartUtils.generateCandlestickChart(
-          ohlc,
-          config.llm.chartHeight,
-          config.llm.chartLimit
-        )
-      : "[ASCII Chart Disabled]";
 
     // 2. Prepare Context (Internal use or logging)
     const context: LLMPromptContext = {
@@ -552,7 +541,6 @@ ${response}
       accountEquity,
       riskPerTrade,
       ohlcData: ohlc,
-      asciiChart,
     };
 
     // 3. Construct Prompt
@@ -581,9 +569,6 @@ Fee Rule:
 MARKET DATA:
 ${formattedContext}
 
-ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
-${asciiChart}
-
 TASK:
 1. Analyze the Market Cycle (Macro & Micro).
 2. Identify Setups.
@@ -610,9 +595,6 @@ ${formattedContext}
 
 CHART IMAGE:
 - A candlestick chart image is attached to this request. Read it as the primary visual reference.
-
-ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
-${asciiChart}
 
 TASK:
 0. Analyze the chart image first. Extract key price-action structures and levels.

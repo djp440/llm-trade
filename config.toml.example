@@ -5,9 +5,6 @@
 # - swing:     波段交易专家，持仓 8-80 根 K 线，允许宽止损，追求多段波幅。
 # - trend:     趋势交易专家，持仓 30-300 根 K 线，低胜率高盈亏比，只抓大行情。
 [llm]
-chart_height = 20 # ASCII 图表高度
-chart_limit = 48 # ASCII 图表显示的最近 K 线数量
-include_chart = false # 设置为 false 以禁用 ASCII 图表发送给 LLM
 log_interactions = true # 是否记录LLM交互日志
 temperature = 0 # 0.0-2.0，越低越稳定
 top_p = 1.0 # 0.0-1.0，建议与 temperature 二选一调整

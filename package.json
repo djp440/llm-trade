@@ -25,13 +25,11 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@napi-rs/canvas": "^0.1.88",
-    "asciichart": "^1.5.25",
     "ccxt": "^4.5.30",
     "dotenv": "^17.2.3",
     "openai": "^6.15.0"
   },
   "devDependencies": {
-    "@types/asciichart": "^1.5.8",
     "@types/node": "^25.0.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

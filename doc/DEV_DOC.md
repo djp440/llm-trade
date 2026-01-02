@@ -21,14 +21,14 @@
 - **交易所接口**: CCXT (Bitget API, 支持切换实盘/模拟)
 - **AI 交互**: OpenAI SDK (配置 DeepSeek 端点)
 - **配置管理**: `dotenv` (.env) + `toml` (config.toml)
-- **辅助工具**: ASCII Chart 生成库 (用于将 K 线转化为字符画)
+- **辅助工具**: (无)
 
 ## 3. 系统架构
 
 系统采用 **事件驱动 + 轮询** 的混合架构，主要包含以下模块：
 
 1.  **Market Data Manager (行情管理器)**: 负责多交易对的 K 线数据获取与维护。
-2.  **LLM Brain (大脑)**: 负责构造 Prompt（包含 OHLC 数据 + ASCII 图表），发送请求并解析 JSON 信号。
+2.  **LLM Brain (大脑)**: 负责构造 Prompt（包含 OHLC 数据），发送请求并解析 JSON 信号。
 3.  **Trade Executor (交易执行器)**: 负责订单路由、突破单挂单、市价单兜底、止盈止损挂单。
 4.  **Position Monitor (持仓监控)**: 负责 WebSocket 状态监听，管理生命周期。
 5.  **Config Loader (配置加载器)**: 处理环境与策略配置。
@@ -43,7 +43,6 @@
     请注意，k 线收盘是交易所标准时间的 k 线收盘！直接调用 ccxt 的监听函数可能会在每分钟都得到数据。
 2.  **上下文构建**:
     - 提取过去 N 根 K 线数据。（可配置）
-    - **关键步骤**: 将这段 OHLC 数据转换为 **ASCII 字符画** (美国线/蜡烛图形式)，直观展示形态。
     - 获取当前账户权益 (Equity)。
 3.  **LLM 分析**:
     - 发送 Prompt (含：ASCII 图、OHLC 数值、账户权益、风险偏好)。
@@ -61,7 +60,7 @@
     - **场景 A (突破单)**: 若 `CurrentPrice < SignalCandle.High` (做多为例)，在 `SignalCandle.High + 1 tick` 处挂 **止损买入单 (Stop Market/Limit)**。
       - _动作_: 挂单 -> 监听 WebSocket 订单状态。
     - **场景 B (市价追单)**: 若 `CurrentPrice >= SignalCandle.High` (价格已突破)，立即执行 **市价单 (Market Order)** 入场。
-3.  **取消机制**: 若挂出的突破单在下一根 K 线收盘前未成交，则发送消息给LLM请求重新评估是否要保留该突破单。
+3.  **取消机制**: 若挂出的突破单在下一根 K 线收盘前未成交，则发送消息给 LLM 请求重新评估是否要保留该突破单。
 
 ### 阶段三：仓位管理 (Position Management)
 
@@ -197,7 +196,6 @@ await Promise.all(managers.map(m => m.startLoop()));
 
 - [ ] **Step 2: LLM 交互模块**
 
-  - 实现 ASCII Chart 生成器。
   - 编写 Prompt 模板。
   - 封装 OpenAI SDK 调用与 JSON 解析/容错处理。
 
@@ -227,7 +225,7 @@ llm-trade/
 │ ├── executor/
 │ │ └── trade-executor.ts # 交易执行器：负责下单（突破单/市价单）及止盈止损挂单
 │ ├── llm/
-│ │ └── brain.ts # LLM 大脑：负责构造 Prompt、生成 ASCII 图表及解析信号
+│ │ └── brain.ts # LLM 大脑：负责构造 Prompt、生成图表(可选)及解析信号
 │ ├── market/
 │ │ └── manager.ts # 行情管理器：封装 CCXT，负责获取 K 线数据和最新价
 │ ├── monitor/

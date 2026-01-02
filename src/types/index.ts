@@ -42,7 +42,6 @@ export interface LLMPromptContext {
   accountEquity: number;
   riskPerTrade: number;
   ohlcData: OHLC[];
-  asciiChart: string;
 }
 
 export interface OrderRequest {

@@ -48,9 +48,6 @@ export interface AppConfig {
     visionEnabled: boolean;
     identityRole: string;
     logInteractions: boolean;
-    includeChart: boolean;
-    chartLimit: number;
-    chartHeight: number;
     temperature?: number;
     topP?: number;
     maxTokens?: number;
@@ -232,9 +229,6 @@ export class ConfigLoader {
           tomlConfig.llm?.identity_role ?? tomlConfig.llm?.identityRole
         ),
         logInteractions: tomlConfig.llm?.log_interactions || false,
-        includeChart: tomlConfig.llm?.include_chart ?? true,
-        chartLimit: tomlConfig.llm?.chart_limit || 48,
-        chartHeight: tomlConfig.llm?.chart_height || 20,
         temperature: parseOptionalNumberInRange(
           tomlConfig.llm?.temperature,
           0,
