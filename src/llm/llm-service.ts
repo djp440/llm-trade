@@ -724,9 +724,35 @@ Return JSON only.
             : {}),
         };
 
-      const response = await client.chat.completions.create(createParams);
+      let response: any;
+      let attempts = 0;
+      const maxAttempts = 2;
 
-      this.logTokenUsage(response.usage);
+      while (true) {
+        attempts++;
+        try {
+          response = await client.chat.completions.create(createParams);
+          this.logTokenUsage(response.usage);
+
+          if (!response.choices || !response.choices.length) {
+            throw new Error(
+              `LLM 返回了无效的响应结构 (choices 为空): ${JSON.stringify(
+                response
+              )}`
+            );
+          }
+          // 成功则跳出
+          break;
+        } catch (error: any) {
+          if (attempts >= maxAttempts) {
+            throw error;
+          }
+          logger.warn(
+            `[LLM 服务] 第 ${attempts} 次请求失败: ${error.message}，将在 2秒后重试...`
+          );
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
 
       const message = response.choices[0].message;
       const content = message.content;
