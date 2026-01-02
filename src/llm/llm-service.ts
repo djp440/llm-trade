@@ -27,7 +27,13 @@ export class LLMService {
   private temperature?: number;
   private topP?: number;
   private maxTokens?: number;
-  private reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
+  private reasoningEffort?:
+    | "ignore"
+    | "none"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high";
   private identityRole: LlmIdentityRole;
 
   private visionEnabled: boolean;

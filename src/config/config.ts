@@ -58,7 +58,7 @@ export interface AppConfig {
     temperature?: number;
     topP?: number;
     maxTokens?: number;
-    reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
+    reasoningEffort?: "ignore" | "none" | "minimal" | "low" | "medium" | "high";
   };
 
   // TOML Strategy Config
