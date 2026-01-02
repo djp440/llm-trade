@@ -40,21 +40,23 @@ export class LLMService {
   private visionCapabilityChecked: boolean;
   private visionCapabilityAvailable: boolean;
 
-  constructor() {
+  constructor(configOverride?: any) {
     const config = ConfigLoader.getInstance();
-    this.openai = new OpenAI({
-      baseURL: config.llm.baseUrl,
-      apiKey: config.llm.apiKey,
-    });
-    this.model = config.llm.model;
-    this.identityRole = resolveLlmIdentityRole(config.llm.identityRole);
-    this.logInteractions = config.llm.logInteractions;
-    this.temperature = config.llm.temperature;
-    this.topP = config.llm.topP;
-    this.maxTokens = config.llm.maxTokens;
-    this.reasoningEffort = config.llm.reasoningEffort;
+    const llmConfig = configOverride || config.llm;
 
-    this.visionEnabled = Boolean(config.llm.visionEnabled);
+    this.openai = new OpenAI({
+      baseURL: llmConfig.baseUrl,
+      apiKey: llmConfig.apiKey,
+    });
+    this.model = llmConfig.model;
+    this.identityRole = resolveLlmIdentityRole(llmConfig.identityRole);
+    this.logInteractions = llmConfig.logInteractions;
+    this.temperature = llmConfig.temperature;
+    this.topP = llmConfig.topP;
+    this.maxTokens = llmConfig.maxTokens;
+    this.reasoningEffort = llmConfig.reasoningEffort;
+
+    this.visionEnabled = Boolean(llmConfig.visionEnabled);
     this.visionCapabilityChecked = false;
     this.visionCapabilityAvailable = false;
   }
@@ -634,7 +636,7 @@ ${response}
   private async performImageAnalysis(
     chartDataUrl: string,
     systemPrompt: string
-  ): Promise<string> {
+  ): Promise<{ content: string; usage?: any; duration?: number }> {
     const userPrompt = `
 Analyze the attached chart image based on Al Brooks Price Action methodology.
 Focus on:
@@ -649,6 +651,7 @@ Provide a concise summary of the visual structure.
 
     try {
       logger.llm(`[LLM 服务] 正在执行独立的图像分析步骤...`);
+      const startTime = Date.now();
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
@@ -663,11 +666,13 @@ Provide a concise summary of the visual structure.
         ],
         // No JSON enforcement for this step, we want free text analysis
       });
+      const duration = Date.now() - startTime;
 
       const analysis = response.choices[0]?.message?.content || "";
       logger.llm(`[LLM 服务] 图像分析完成。长度: ${analysis.length} 字符`);
 
-      this.logTokenUsage(response.usage);
+      // Don't log usage here, return it to be aggregated
+      // this.logTokenUsage(response.usage);
 
       await this.saveInteractionLog(
         "IMAGE_ANALYSIS",
@@ -676,12 +681,75 @@ Provide a concise summary of the visual structure.
         analysis
       );
 
-      return analysis;
+      return { content: analysis, usage: response.usage, duration };
     } catch (error: any) {
       logger.warn(
         `[LLM 服务] 图像分析步骤失败: ${error.message}。将降级为纯文本分析。`
       );
-      return "";
+      return { content: "" };
+    }
+  }
+
+  public async checkPendingOrderValidity(
+    symbol: string,
+    currentPrice: number,
+    order: any,
+    ohlcContext: string
+  ): Promise<PendingOrderDecision> {
+    const systemPrompt = `You are a trading assistant.
+    You have a PENDING ORDER (Entry Stop) waiting to be triggered.
+    The market has moved since the order was placed.
+    Decide whether to KEEP the order or CANCEL it based on the new price action.
+    
+    If the setup is no longer valid (e.g., price moved too far away, or market structure changed), CANCEL it.
+    If the setup is still valid and the breakout is still expected, KEEP it.
+    
+    Return JSON:
+    {
+      "decision": "KEEP" | "CANCEL",
+      "reason": "Simplified Chinese reason"
+    }
+    `;
+
+    const userPrompt = `
+    Symbol: ${symbol}
+    Current Price: ${currentPrice}
+    Pending Order: ${JSON.stringify(order)}
+    
+    Market Context (Recent Candles):
+    ${ohlcContext}
+    
+    Should we keep this order?
+    `;
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const content = response.choices[0]?.message?.content || "{}";
+      const json = JSON.parse(this.cleanJsonString(content));
+
+      this.logTokenUsage(response.usage);
+      await this.saveInteractionLog(
+        "PENDING_ORDER_CHECK",
+        systemPrompt,
+        userPrompt,
+        content
+      );
+
+      return {
+        decision: json.decision || "KEEP",
+        reason: json.reason || "Default keep",
+      };
+    } catch (error: any) {
+      logger.error(`Error analyzing pending order: ${error.message}`);
+      return { decision: "KEEP", reason: "Error in LLM" };
     }
   }
 
@@ -701,7 +769,8 @@ Provide a concise summary of the visual structure.
     contextData: OHLC[],
     trendData: OHLC[],
     accountEquity: number,
-    riskPerTrade: number
+    riskPerTrade: number,
+    options?: { enableImageAnalysis?: boolean }
   ): Promise<TradeSignal> {
     const config = ConfigLoader.getInstance();
     const commissionRatePercent = config.execution.commission_rate_percent;
@@ -735,19 +804,34 @@ Provide a concise summary of the visual structure.
     );
 
     let imageAnalysisResult = "";
+    // Track total usage across requests
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalDurationMs = 0;
 
     try {
       await this.ensureVisionCapabilityChecked();
       const shouldUseVisionMain =
-        this.visionEnabled && this.visionCapabilityAvailable;
+        options?.enableImageAnalysis !== false &&
+        this.visionEnabled &&
+        this.visionCapabilityAvailable;
 
       // Step 1: Image Analysis (if enabled and available)
       if (shouldUseVisionMain) {
         const chart = this.buildChartImageDataUrl(tradingData);
-        imageAnalysisResult = await this.performImageAnalysis(
+        const result = await this.performImageAnalysis(
           chart.dataUrl,
           systemPrompt
         );
+        imageAnalysisResult = result.content;
+
+        if (result.usage) {
+          totalPromptTokens += result.usage.prompt_tokens || 0;
+          totalCompletionTokens += result.usage.completion_tokens || 0;
+        }
+        if (result.duration) {
+          totalDurationMs += result.duration;
+        }
       }
 
       // Step 2: Final Analysis (Signal Generation)
@@ -771,8 +855,9 @@ ${formattedContext}
 
       if (imageAnalysisResult) {
         userPromptFinal += `
-VISUAL ANALYSIS REPORT (From Chart Image):
-The following is an analysis of the visual chart patterns generated by an AI vision model. Use this to confirm the OHLC numbers.
+### VISUAL ANALYSIS REPORT (From Chart Image)
+The following is an analysis of the visual chart patterns generated by an AI vision model. 
+This IS the chart analysis. Use this to confirm the OHLC numbers.
 """
 ${imageAnalysisResult}
 """
@@ -830,7 +915,22 @@ Return JSON only.
           const startTime = Date.now();
           response = await client.chat.completions.create(createParams);
           const duration = Date.now() - startTime;
-          this.logTokenUsage(response.usage, duration);
+
+          // Accumulate Step 2 usage
+          if (response.usage) {
+            totalPromptTokens += response.usage.prompt_tokens || 0;
+            totalCompletionTokens += response.usage.completion_tokens || 0;
+          }
+          totalDurationMs += duration;
+
+          this.logTokenUsage(
+            {
+              prompt_tokens: totalPromptTokens,
+              completion_tokens: totalCompletionTokens,
+              total_tokens: totalPromptTokens + totalCompletionTokens,
+            },
+            totalDurationMs
+          );
 
           if (!response.choices || !response.choices.length) {
             throw new Error(
