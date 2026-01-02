@@ -553,19 +553,59 @@ ${response}
   }
 
   private cleanJsonString(str: string): string {
-    // 尝试提取 JSON 对象部分
+    // 1. 尝试提取 JSON 对象部分
+    let jsonStr = str;
     const firstBrace = str.indexOf("{");
     const lastBrace = str.lastIndexOf("}");
 
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      return str.substring(firstBrace, lastBrace + 1);
+      jsonStr = str.substring(firstBrace, lastBrace + 1);
+    } else {
+      // 如果找不到大括号，尝试移除 markdown 标记作为备选
+      jsonStr = str
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
     }
 
-    // 如果找不到大括号，尝试移除 markdown 标记作为备选
-    return str
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    // 2. 清洗字符串中的控制字符 (修复 LLM 返回未转义换行符的问题)
+    let result = "";
+    let inString = false;
+    let isEscaped = false;
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+
+      if (inString) {
+        if (isEscaped) {
+          result += char;
+          isEscaped = false;
+        } else {
+          if (char === "\\") {
+            isEscaped = true;
+            result += char;
+          } else if (char === '"') {
+            inString = false;
+            result += char;
+          } else if (char === "\n") {
+            result += "\\n";
+          } else if (char === "\r") {
+            // 忽略 CR
+          } else if (char === "\t") {
+            result += "\\t";
+          } else {
+            result += char;
+          }
+        }
+      } else {
+        if (char === '"') {
+          inString = true;
+        }
+        result += char;
+      }
+    }
+
+    return result;
   }
 
   /**
