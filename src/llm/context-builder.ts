@@ -19,22 +19,155 @@ export class ContextBuilder {
     const contextContext = this.enrichData(contextData, false);
     const trendContext = this.enrichData(trendData, false);
 
-    const context = {
-      trading: {
-        interval: timeframes.trading,
-        data: tradingContext,
-      },
-      context: {
-        interval: timeframes.context,
-        data: contextContext,
-      },
-      trend: {
-        interval: timeframes.trend,
-        data: trendContext,
-      },
-    };
+    const parts: string[] = [];
+    parts.push("=== MARKET DATA (MTF) ===");
+    parts.push("");
+    parts.push(this.formatTrendData(trendContext, timeframes.trend));
+    parts.push("");
+    parts.push(this.formatContextData(contextContext, timeframes.context));
+    parts.push("");
+    parts.push(this.formatTradingData(tradingContext, timeframes.trading));
 
-    return JSON.stringify(context, null, 2);
+    return parts.join("\n");
+  }
+
+  private static formatTrendData(
+    data: EnrichedOHLC[],
+    interval: string
+  ): string {
+    const lines: string[] = [];
+    lines.push(
+      `[TREND: ${interval.toUpperCase()}] (Major Direction & Structure)`
+    );
+    lines.push(`Time        | Close     | EMA20     | Note`);
+
+    data.forEach(bar => {
+      const timeStr = this.formatDate(bar.timestamp, "MM-DD HH:mm");
+      const closeStr = bar.close.toFixed(2).padEnd(9);
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(9) : "         ";
+
+      let note = "";
+      if (bar.ema20) {
+        if (bar.low > bar.ema20) note = "Above EMA";
+        else if (bar.high < bar.ema20) note = "Below EMA";
+        else note = "Testing EMA";
+      }
+
+      lines.push(`${timeStr.padEnd(11)} | ${closeStr} | ${emaStr} | ${note}`);
+    });
+    return lines.join("\n");
+  }
+
+  private static formatContextData(
+    data: EnrichedOHLC[],
+    interval: string
+  ): string {
+    const lines: string[] = [];
+    lines.push(
+      `[CONTEXT: ${interval.toUpperCase()}] (Support/Resistance & Immediate Bias)`
+    );
+    lines.push(`Time   | High      | Low       | Close     | EMA20     | Rel`);
+
+    data.forEach(bar => {
+      const timeStr = this.formatDate(bar.timestamp, "HH:mm");
+      const highStr = bar.high.toFixed(2).padEnd(9);
+      const lowStr = bar.low.toFixed(2).padEnd(9);
+      const closeStr = bar.close.toFixed(2).padEnd(9);
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(9) : "         ";
+
+      let rel = "";
+      if (bar.ema20) {
+        if (bar.low > bar.ema20) rel = "Above";
+        else if (bar.high < bar.ema20) rel = "Below";
+        else rel = "On";
+      }
+
+      lines.push(
+        `${timeStr.padEnd(
+          6
+        )} | ${highStr} | ${lowStr} | ${closeStr} | ${emaStr} | ${rel}`
+      );
+    });
+    return lines.join("\n");
+  }
+
+  private static formatTradingData(
+    data: EnrichedOHLC[],
+    interval: string
+  ): string {
+    const lines: string[] = [];
+    lines.push(
+      `[TRADING: ${interval.toUpperCase()}] (Signal & Timing - Detailed)`
+    );
+    lines.push(
+      `Time   | Open    High    Low     Close   | EMA20   | Vol   | Bar(Str) | E-Rel`
+    );
+
+    data.forEach((bar, index) => {
+      const isLast = index === data.length - 1;
+      const timeStr = this.formatDate(bar.timestamp, "HH:mm");
+      // Open High Low Close compact
+      const o = bar.open.toFixed(2);
+      const h = bar.high.toFixed(2);
+      const l = bar.low.toFixed(2);
+      const c = bar.close.toFixed(2);
+      const ohlcStr = `${o} ${h} ${l} ${c}`.padEnd(31);
+
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(7) : "       ";
+      const volStr = this.formatVolume(bar.volume).padEnd(5);
+
+      let barStr = "        ";
+      let eRel = "     ";
+
+      if (bar.features) {
+        const typeCode = this.getShortBarType(bar.features.bar_type);
+        const str = bar.features.close_strength.toFixed(2);
+        barStr = `${typeCode}(${str})`; // e.g. BT(0.75)
+        eRel = bar.features.ema_relation;
+      } else if (bar.ema20) {
+        // Fallback if no features
+        if (bar.low > bar.ema20) eRel = "Above";
+        else if (bar.high < bar.ema20) eRel = "Below";
+        else eRel = "On";
+      }
+
+      let line = `${timeStr.padEnd(
+        6
+      )} | ${ohlcStr} | ${emaStr} | ${volStr} | ${barStr.padEnd(8)} | ${eRel}`;
+      if (isLast) {
+        line += " <-- CURRENT SIGNAL";
+      }
+      lines.push(line);
+    });
+    return lines.join("\n");
+  }
+
+  private static formatDate(
+    timestamp: number,
+    format: "MM-DD HH:mm" | "HH:mm"
+  ): string {
+    const date = new Date(timestamp);
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+
+    if (format === "MM-DD HH:mm") {
+      return `${month}-${day} ${hours}:${minutes}`;
+    }
+    return `${hours}:${minutes}`;
+  }
+
+  private static formatVolume(vol: number): string {
+    if (vol >= 1000000) return (vol / 1000000).toFixed(1) + "M";
+    if (vol >= 1000) return (vol / 1000).toFixed(1) + "K";
+    return String(Math.round(vol));
+  }
+
+  private static getShortBarType(type: string): string {
+    if (type === "Bull Trend") return "BT";
+    if (type === "Bear Trend") return "BR";
+    return "DJ";
   }
 
   private static enrichData(

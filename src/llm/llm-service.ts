@@ -376,16 +376,17 @@ export class LLMService {
 
 
 ### DATA INPUT FORMAT (Multi-Timeframe Strategy)
-You will receive data in three timeframes (plus optional Chart Image):
-1. **Trading** (e.g., 5m): Detailed bars with Al Brooks features (bar_type, close_strength, etc).
-2. **Context** (e.g., 1h): Higher timeframe for intermediate trend.
-3. **Trend** (e.g., 4h): Highest timeframe for major trend direction.
-   - The lists are sorted chronologically: **Oldest -> Newest**.
-   - The **LAST BAR** in the **Trading** list is the **CURRENT SIGNAL BAR**.
-   - \`bar_type\`: "Bull Trend", "Bear Trend", or "Doji".
-   - \`close_strength\`: 0.0 (Low) to 1.0 (High). Indicates buying/selling pressure.
-   - \`ema_relation\`: Position relative to 20 EMA.
-   - \`overlap\`: Market churn/indecision.
+You will receive data in a structured ASCII table format with three timeframes:
+1. **[TREND]** (e.g., 4h): Major direction & structure.
+2. **[CONTEXT]** (e.g., 1h): Support/Resistance & Immediate Bias.
+3. **[TRADING]** (e.g., 5m): Detailed signal & timing.
+
+**Column Definitions**:
+- **Bar(Str)**: Bar Type & Close Strength.
+  - \`BT\`: Bull Trend, \`BR\`: Bear Trend, \`DJ\`: Doji.
+  - Value in \`()\` is Close Strength (0.0 - 1.0). e.g., \`BT(0.75)\`.
+- **E-Rel / Rel**: Relation to EMA20 (Above, Below, On).
+- **<-- CURRENT SIGNAL**: Points to the latest bar in Trading timeframe.
 
 **IMPORTANT HANDLING INSTRUCTIONS**:
 - **If you receive a Chart Image**: You MUST analyze the image FIRST (Visual Analysis).
