@@ -259,7 +259,8 @@ export class TradeManager {
         } else {
           if (entryOrder && entryOrder.status === "closed") {
             this.state = TradeState.MANAGING;
-            this.hasSeenOpenPosition = false;
+            // 立即标记为已见过持仓，防止瞬间平仓导致 processManaging 逻辑踏空
+            this.hasSeenOpenPosition = true;
             logger.position(
               `[交易管理器] ${this.symbol} - 已进场，进入 MANAGING 状态，开始监控仓位...`
             );
@@ -361,7 +362,8 @@ export class TradeManager {
 
         // 切换到管理状态
         this.state = TradeState.MANAGING;
-        this.hasSeenOpenPosition = false;
+        // 立即标记为已见过持仓，防止瞬间平仓导致 processManaging 逻辑踏空
+        this.hasSeenOpenPosition = true;
         this.pendingEntryOrder = null;
         this.pendingTradePlan = null;
         return;
