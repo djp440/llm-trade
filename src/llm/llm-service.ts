@@ -357,15 +357,20 @@ export class LLMService {
 - If net profit after commissions is <= 0, or net risk/reward is poor (< ${minNetRR}), you MUST return REJECT.
 
 ### DATA INPUT FORMAT ("Telescope" Strategy)
-You will receive data in two layers:
-1. **Macro Context**: Summarized history to understand the big picture (Trend vs Range).
-2. **Micro Action**: Detailed recent bars with pre-calculated Al Brooks features.
+You will receive data in up to three layers:
+1. **Chart Image** (Optional): A visual representation of the recent price action (Candlestick Chart).
+2. **Macro Context**: Summarized history to understand the big picture (Trend vs Range).
+3. **Micro Action**: Detailed recent bars with pre-calculated Al Brooks features.
    - The list is sorted chronologically: **Oldest -> Newest**.
    - The **LAST BAR** in the list is the **CURRENT SIGNAL BAR** you must evaluate.
    - \`bar_type\`: "Bull Trend", "Bear Trend", or "Doji".
    - \`close_strength\`: 0.0 (Low) to 1.0 (High). Indicates buying/selling pressure.
    - \`ema_relation\`: Position relative to 20 EMA.
    - \`overlap\`: Market churn/indecision.
+
+**IMPORTANT HANDLING INSTRUCTIONS**:
+- **If you receive a Chart Image**: You MUST analyze the image FIRST. The visual market background shown in the image is the primary source of truth. Use Macro and Micro data to support your visual analysis.
+- **If you DO NOT receive a Chart Image**: Proceed directly with analyzing the Macro and Micro data.
 
 **INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags. Focus on the LATEST bar for signal confirmation.
 

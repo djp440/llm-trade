@@ -9,12 +9,11 @@ chart_height = 20 # ASCII 图表高度
 chart_limit = 48 # ASCII 图表显示的最近 K 线数量
 include_chart = false # 设置为 false 以禁用 ASCII 图表发送给 LLM
 log_interactions = true # 是否记录LLM交互日志
-temperature = 0.7 # 0.0-2.0，越低越稳定
+temperature = 0 # 0.0-2.0，越低越稳定
 top_p = 1.0 # 0.0-1.0，建议与 temperature 二选一调整
-max_tokens = 1400 # 单次回复最大 token 数，留空则使用服务端默认
-reasoning_effort = "ignore" # ignore|none|low|medium|high；ignore 表示不随请求发送该字段
+max_tokens = 4000 # 单次回复最大 token 数，留空则使用服务端默认
+reasoning_effort = "medium" # ignore|none|low|medium|high；ignore 表示不随请求发送该字段
 identity_role = "daytrader"
-
 [strategy]
 lookback_candles = 192 # 发送给LLM的K线数量
 max_open_positions = 3 # 最大同时持仓币种数
@@ -22,17 +21,17 @@ risk_per_trade = 1.0 # 单笔风险（百分比制）。例如 1 表示 1%
 timeframe = "15m" 
 
 [strategy.telescope]
-macro_group_size = 6 # Macro View 的聚合 K 线数量
+macro_group_size = 2 # Macro View 的聚合 K 线数量
 micro_count = 30 # Micro View 的 K 线数量
 
 [symbols]
 # 启用的交易对列表
 active = [
-  "SOL/USDT:USDT",
+  "ETH/USDT:USDT",
 ]
 
 [execution]
+commission_rate_percent = 0.06 # 单边佣金费率（百分比制）。例如 0.04 表示 0.04%
 entry_offset_ticks = 1 # 突破单价格偏移 tick 数
 min_notional = 5.0 # 最小交易名义价值 (USDT)
 slippage_tolerance = 0.1 # 滑点容忍度（百分比制）。例如 0.1 表示 0.1%
-commission_rate_percent = 0.0 # 单边佣金费率（百分比制）。例如 0.04 表示 0.04%
