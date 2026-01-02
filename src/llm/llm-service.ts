@@ -469,7 +469,8 @@ You MUST return a strictly valid JSON object.
     type: string,
     systemPrompt: string,
     userPrompt: string,
-    response: string
+    response: string,
+    reasoningContent?: string
   ) {
     if (!this.logInteractions) return;
 
@@ -498,7 +499,16 @@ ${systemPrompt}
 ${userPrompt}
 \`\`\`
 
-## Response
+${
+  reasoningContent
+    ? `## Reasoning Process
+\`\`\`text
+${reasoningContent}
+\`\`\`
+
+`
+    : ""
+}## Response
 \`\`\`json
 ${response}
 \`\`\`
@@ -688,7 +698,10 @@ Return JSON only.
 
       this.logTokenUsage(response.usage);
 
-      const content = response.choices[0].message.content;
+      const message = response.choices[0].message;
+      const content = message.content;
+      const reasoningContent = (message as any).reasoning_content;
+
       if (!content) {
         throw new Error("LLM 返回内容为空");
       }
@@ -697,7 +710,8 @@ Return JSON only.
         "MARKET_ANALYSIS",
         systemPrompt,
         userPrompt,
-        content
+        content,
+        reasoningContent
       );
 
       const cleanedContent = this.cleanJsonString(content);
