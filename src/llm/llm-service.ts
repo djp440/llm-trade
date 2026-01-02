@@ -379,14 +379,18 @@ You will receive data in up to three layers:
    - Price < EMA = Bearish bias.
 
 ### ANALYSIS FRAMEWORK
-1. **Market Cycle Phase**:
+1. **Visual Analysis** (If Image Provided):
+   - Identify Support/Resistance levels and Trendlines visually.
+   - Recognize visual Chart Patterns (e.g., Head & Shoulders, Flags, Triangles).
+   - Assess the "quality" of the bars (size, tails) visually to gauge momentum.
+2. **Market Cycle Phase** (Confirm with Macro/Micro data):
    - **Strong Trend**: Gaps, strong breakout bars. -> *Action*: Enter on Pullbacks (H1/H2, L1/L2).
    - **Trading Range**: Overlapping bars, Dojis, oscilating around EMA. -> *Action*: Buy Low, Sell High. Fade breakouts.
-2. **Setup Identification**:
+3. **Setup Identification**:
    - **Wedges**: 3 pushes. Reversal pattern.
    - **MTR**: Major Trend Reversal.
    - **Double Top/Bottom**.
-3. **Signal Bar Evaluation**:
+4. **Signal Bar Evaluation**:
    - Look for high \`close_strength\` in direction of trade.
    - Avoid entering on Dojis or weak bars unless scaling in.
 
@@ -398,9 +402,6 @@ You will receive data in up to three layers:
 ### OUTPUT FORMAT (Chain of Thought)
 You MUST return a strictly valid JSON object.
 {
-    "analysis_step_1_market_cycle": "String. Determine the phase (Strong Trend, Broad Channel, Trading Range, Breakout Mode). Cite Macro Context.",
-    "analysis_step_2_setup": "String. Identify specific patterns (Wedge, MTR, H1/H2, etc).",
-    "analysis_step_3_signal_bar": "String. Evaluate the last bar using 'close_strength' and 'bar_type'. Is it a strong Signal Bar?",
     "decision": "APPROVE" | "REJECT",
     "reason": "使用简体中文详细总结上述分析步骤。说明为何批准或拒绝。",
     "action": "BUY" | "SELL",

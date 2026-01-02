@@ -13,6 +13,7 @@ export interface OHLC {
 
 export interface TradeSignal {
   decision: "APPROVE" | "REJECT";
+  analysis_step_0_visual?: string;
   analysis_step_1_market_cycle: string;
   analysis_step_2_setup: string;
   analysis_step_3_signal_bar: string;
