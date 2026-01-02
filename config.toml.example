@@ -9,7 +9,7 @@ log_interactions = true # 是否记录LLM交互日志
 temperature = 0 # 0.0-2.0，越低越稳定
 top_p = 1.0 # 0.0-1.0，建议与 temperature 二选一调整
 max_tokens = 4000 # 单次回复最大 token 数，留空则使用服务端默认
-reasoning_effort = "medium" # ignore|none|low|medium|high；ignore 表示不随请求发送该字段
+reasoning_effort = "medium" # ignore|none|minimal|low|medium|high；ignore 表示不随请求发送该字段
 identity_role = "daytrader"
 [strategy]
 max_open_positions = 3 # 最大同时持仓币种数
