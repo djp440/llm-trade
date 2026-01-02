@@ -45,6 +45,7 @@ export interface AppConfig {
     apiKey: string;
     baseUrl: string;
     model: string;
+    visionEnabled: boolean;
     identityRole: string;
     logInteractions: boolean;
     includeChart: boolean;
@@ -54,17 +55,6 @@ export interface AppConfig {
     topP?: number;
     maxTokens?: number;
     reasoningEffort?: "ignore" | "none" | "low" | "medium" | "high";
-  };
-
-  visionLlm: {
-    enabled: boolean;
-    useForMain: boolean;
-    apiKey: string;
-    baseUrl: string;
-    model: string;
-    temperature?: number;
-    topP?: number;
-    maxTokens?: number;
   };
 
   // TOML Strategy Config
@@ -215,6 +205,9 @@ export class ConfigLoader {
       "execution.commission_rate_percent"
     );
 
+    const llmModel = process.env.LLM_MODEL || "deepseek-chat";
+    const visionEnabled = process.env.VISION_LLM_ENABLED === "true";
+
     return {
       exchange: {
         id: process.env.EXCHANGE_ID || "bitget",
@@ -233,7 +226,8 @@ export class ConfigLoader {
         provider: process.env.LLM_PROVIDER || "deepseek",
         apiKey: process.env.LLM_API_KEY || "",
         baseUrl: process.env.LLM_BASE_URL || "https://api.deepseek.com/v1",
-        model: process.env.LLM_MODEL || "deepseek-chat",
+        model: llmModel,
+        visionEnabled,
         identityRole: parseIdentityRole(
           tomlConfig.llm?.identity_role ?? tomlConfig.llm?.identityRole
         ),
@@ -259,39 +253,6 @@ export class ConfigLoader {
         ),
         reasoningEffort: parseReasoningEffort(
           tomlConfig.llm?.reasoning_effort ?? tomlConfig.llm?.reasoningEffort
-        ),
-      },
-
-      visionLlm: {
-        enabled: process.env.VISION_LLM_ENABLED === "true",
-        useForMain: process.env.VISION_LLM_USE_FOR_MAIN === "true",
-        apiKey: process.env.VISION_LLM_API_KEY || process.env.LLM_API_KEY || "",
-        baseUrl:
-          process.env.VISION_LLM_BASE_URL ||
-          process.env.LLM_BASE_URL ||
-          "https://api.deepseek.com/v1",
-        model: process.env.VISION_LLM_MODEL || "",
-        temperature: parseOptionalNumberInRange(
-          process.env.VISION_LLM_TEMPERATURE
-            ? Number(process.env.VISION_LLM_TEMPERATURE)
-            : undefined,
-          0,
-          2,
-          "vision_llm.temperature"
-        ),
-        topP: parseOptionalNumberInRange(
-          process.env.VISION_LLM_TOP_P
-            ? Number(process.env.VISION_LLM_TOP_P)
-            : undefined,
-          0,
-          1,
-          "vision_llm.top_p"
-        ),
-        maxTokens: parseOptionalPositiveInt(
-          process.env.VISION_LLM_MAX_TOKENS
-            ? Number(process.env.VISION_LLM_MAX_TOKENS)
-            : undefined,
-          "vision_llm.max_tokens"
         ),
       },
 

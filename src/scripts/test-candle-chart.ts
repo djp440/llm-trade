@@ -1,10 +1,10 @@
 import fs from "fs";
 import path from "path";
 import { createCanvas } from "@napi-rs/canvas";
-import OpenAI from "openai";
 import { config } from "../config/config";
 import { ExchangeManager } from "../market/exchange-manager";
 import { MarketDataManager } from "../market/manager";
+import { LLMService } from "../llm/llm-service";
 import { OHLC } from "../types";
 import { logger } from "../utils/logger";
 
@@ -155,54 +155,6 @@ function makeOfflineCandles(
     });
   }
   return out;
-}
-
-async function buildPromptFromChartImage(options: {
-  symbol: string;
-  timeframe: string;
-  candleCount: number;
-  pngPath: string;
-}): Promise<string> {
-  const visionCfg = config.visionLlm;
-  if (!visionCfg.apiKey || !visionCfg.baseUrl || !visionCfg.model) {
-    throw new Error("图像识别 LLM 配置缺失");
-  }
-
-  const buf = await fs.promises.readFile(options.pngPath);
-  const b64 = buf.toString("base64");
-  const dataUrl = `data:image/png;base64,${b64}`;
-
-  const openai = new OpenAI({
-    apiKey: visionCfg.apiKey,
-    baseURL: visionCfg.baseUrl,
-  });
-
-  const systemPrompt = `你是一名精通阿尔布鲁克斯(Al Brooks)价格行为学的交易员与教练。\n\n你将看到一张包含时间轴与价格轴的标准K线图。\n你的任务不是直接下单，而是：\n1) 识别图中价格背景：趋势/震荡/突破模式，是否在20EMA附近震荡(若图中未提供EMA则忽略)，是否存在明显通道/楔形/旗形/双顶双底等。\n2) 识别关键价格行为：强势/弱势的信号K线、突破与失败、回调、量能信息(若图中未提供成交量则忽略)。\n3) 将你的观察总结成一段“可直接发送给另一个LLM做交易决策”的用户Prompt。\n\n输出要求：\n- 只输出Prompt正文，不要前后缀解释，不要JSON，不要Markdown。\n- 使用简体中文。\n- 必须包含：市场阶段判断、关键形态、最近几根K线的关键信息、交易者应重点关注的2-4个问题。`;
-
-  const userText = `交易对: ${options.symbol}\n周期: ${options.timeframe}\nK线数量: ${options.candleCount}\n\n请基于下方K线图生成Prompt：`;
-
-  const resp = await openai.chat.completions.create({
-    model: visionCfg.model,
-    temperature: visionCfg.temperature,
-    top_p: visionCfg.topP,
-    max_tokens: visionCfg.maxTokens,
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userText },
-          { type: "image_url", image_url: { url: dataUrl } },
-        ] as any,
-      },
-    ],
-  });
-
-  const text = resp.choices?.[0]?.message?.content;
-  if (!text) {
-    throw new Error("图像识别 LLM 未返回有效文本内容");
-  }
-  return text.trim();
 }
 
 function renderCandlesToPng(options: {
@@ -505,24 +457,22 @@ async function main() {
 
     if (!opts.noVision) {
       try {
-        const visionCfg = config.visionLlm;
-        if (!visionCfg.apiKey || !visionCfg.baseUrl || !visionCfg.model) {
-          logger.warn(
-            "[测试脚本] 未配置图像识别LLM，已跳过。请在 .env 中设置 VISION_LLM_API_KEY / VISION_LLM_BASE_URL / VISION_LLM_MODEL。"
-          );
-        } else {
-          logger.info("[测试脚本] 正在将K线图发送给图像识别LLM生成Prompt...");
-          const prompt = await buildPromptFromChartImage({
-            symbol,
-            timeframe,
-            candleCount: candles.length,
-            pngPath,
-          });
-          logger.info("[测试脚本] 图像识别LLM已返回Prompt：\n" + prompt);
-        }
+        const llmService = new LLMService();
+        const accountEquity = 1000;
+        const riskPerTrade = config.strategy.risk_per_trade;
+        logger.info("[测试脚本] 正在调用 LLM 主分析(可选含图像)...");
+        const signal = await llmService.analyzeMarket(
+          symbol,
+          candles,
+          accountEquity,
+          riskPerTrade
+        );
+        logger.info(
+          "[测试脚本] LLM 返回信号:\n" + JSON.stringify(signal, null, 2)
+        );
       } catch (error: any) {
         logger.error(
-          `[测试脚本] 图像识别LLM调用失败: ${error?.message || String(error)}`
+          `[测试脚本] LLM 调用失败: ${error?.message || String(error)}`
         );
       }
     }

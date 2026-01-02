@@ -33,12 +33,8 @@ export class LLMService {
   private identityRole: LlmIdentityRole;
 
   private visionEnabled: boolean;
-  private visionUseForMain: boolean;
-  private visionOpenai: OpenAI | null;
-  private visionModel: string;
-  private visionTemperature?: number;
-  private visionTopP?: number;
-  private visionMaxTokens?: number;
+  private visionCapabilityChecked: boolean;
+  private visionCapabilityAvailable: boolean;
 
   constructor() {
     const config = ConfigLoader.getInstance();
@@ -55,22 +51,66 @@ export class LLMService {
     this.maxTokens = config.llm.maxTokens;
     this.reasoningEffort = config.llm.reasoningEffort;
 
-    this.visionEnabled = Boolean(config.visionLlm.enabled);
-    this.visionUseForMain = Boolean(config.visionLlm.useForMain);
-    this.visionModel = config.visionLlm.model;
-    this.visionTemperature = config.visionLlm.temperature;
-    this.visionTopP = config.visionLlm.topP;
-    this.visionMaxTokens = config.visionLlm.maxTokens;
-    this.visionOpenai =
-      this.visionEnabled &&
-      config.visionLlm.apiKey &&
-      config.visionLlm.baseUrl &&
-      config.visionLlm.model
-        ? new OpenAI({
-            baseURL: config.visionLlm.baseUrl,
-            apiKey: config.visionLlm.apiKey,
-          })
-        : null;
+    this.visionEnabled = Boolean(config.llm.visionEnabled);
+    this.visionCapabilityChecked = false;
+    this.visionCapabilityAvailable = false;
+  }
+
+  private async ensureVisionCapabilityChecked(): Promise<void> {
+    // 1. 如果配置已禁用，直接标记不可用
+    if (!this.visionEnabled) {
+      this.visionCapabilityChecked = true;
+      this.visionCapabilityAvailable = false;
+      return;
+    }
+
+    // 2. 如果已经检查过，直接返回
+    if (this.visionCapabilityChecked) return;
+    this.visionCapabilityChecked = true;
+
+    // 建议使用稍微大一点的图片，增加 Provider 兼容性
+    // 这是一个 64x64 的纯黑色 PNG
+    const testImageDataUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg";
+
+    try {
+      logger.llm(`[LLM 服务] 正在验证主 LLM 图片识别能力 (${this.model})...`);
+
+      await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What is this image?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: testImageDataUrl,
+                  detail: "low", // 强制低精度，省钱且减少 400 报错概率
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 5, // 只需要模型开口就行
+        temperature: 0,
+      });
+
+      this.visionCapabilityAvailable = true;
+      logger.llm(`[LLM 服务] ${this.model} 图片识别验证通过。`);
+    } catch (error: any) {
+      this.visionCapabilityAvailable = false;
+      // 这里打印完整的 error 对象，能帮你确定具体的 400 原因
+      const errorDetails =
+        error?.response?.data || error?.message || String(error);
+      logger.warn(`[LLM 服务] 验证失败: ${JSON.stringify(errorDetails)}`);
+    }
+  }
+
+  public async validateVisionCapability(): Promise<boolean> {
+    await this.ensureVisionCapabilityChecked();
+    return this.visionCapabilityAvailable;
   }
 
   private formatTimeLabel(timestampMs: number): string {
@@ -295,62 +335,6 @@ export class LLMService {
     };
   }
 
-  private async getVisionPreAnalysisText(
-    symbol: string,
-    timeframe: string,
-    ohlc: OHLC[]
-  ): Promise<string | null> {
-    if (!this.visionEnabled) return null;
-    if (!this.visionOpenai || !this.visionModel) {
-      logger.warn(
-        "[LLM 服务] 已启用图像识别LLM，但缺少配置（VISION_LLM_API_KEY / VISION_LLM_BASE_URL / VISION_LLM_MODEL）"
-      );
-      return null;
-    }
-
-    logger.llm(
-      `[LLM 服务] 图像预分析已启用，正在调用图像识别LLM (${this.visionModel})...`
-    );
-
-    const chart = this.buildChartImageDataUrl(ohlc);
-    logger.llm(
-      `[LLM 服务] 已生成K线图像并附加到请求: candles=${ohlc.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
-    );
-
-    const systemPrompt = `You are an expert discretionary trader and coach specialized in Al Brooks Price Action.\nYou will be given a standard candlestick chart image (with a time axis and price axes on both sides).\nYour job is NOT to place trades. Your job is to extract the most important price-action signals, structures, and key price levels from the chart, and produce a concise pre-analysis that can be injected into a second LLM's trading decision prompt.\n\nOutput requirements:\n- Output English only.\n- Output plain text only (NO JSON, NO Markdown).\n- Prefer structured bullets/sections, but keep it concise.\n- MUST include:\n  1) Market regime: trend vs trading range vs breakout mode (with justification).\n  2) Key structures: channels, wedges (3-push), double tops/bottoms, failed breakouts, measured move context, etc. If none, say so.\n  3) Key price levels with concrete prices: support/resistance, range boundaries, recent swing highs/lows.\n  4) The most important signal bars in the last 5-10 bars (which bars matter and why).\n  5) 2-4 critical questions the decision LLM must answer before taking a trade.`;
-
-    const userText = `Symbol: ${symbol}\nTimeframe: ${timeframe}\nCandles: ${ohlc.length}\n\nGenerate the pre-analysis from the chart image:`;
-
-    const resp = await this.visionOpenai.chat.completions.create({
-      model: this.visionModel,
-      ...(this.visionTemperature !== undefined
-        ? { temperature: this.visionTemperature }
-        : {}),
-      ...(this.visionTopP !== undefined ? { top_p: this.visionTopP } : {}),
-      ...(this.visionMaxTokens !== undefined
-        ? { max_tokens: this.visionMaxTokens }
-        : {}),
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            { type: "image_url", image_url: { url: chart.dataUrl } },
-          ] as any,
-        },
-      ],
-    });
-
-    this.logTokenUsage(resp.usage);
-
-    const text = resp.choices?.[0]?.message?.content;
-    if (!text) return null;
-    const trimmed = text.trim();
-    logger.llm(`[LLM 服务] 图像预分析完成，文本长度: ${trimmed.length} 字符`);
-    return trimmed;
-  }
-
   private getMinNetRR(): number {
     return getIdentityRoleRiskParams(this.identityRole).minNetRR;
   }
@@ -439,23 +423,6 @@ You MUST return a strictly valid JSON object.
         max_tokens: 5,
       });
       logger.llm("LLM 连接成功！");
-
-      if (this.visionUseForMain) {
-        if (!this.visionOpenai || !this.visionModel) {
-          logger.warn(
-            "[LLM 服务] 已配置主分析使用图像识别LLM，但缺少 VISION_LLM_* 配置"
-          );
-          return false;
-        }
-        logger.llm(`正在测试 图像识别LLM 连接 (${this.visionModel})...`);
-        await this.visionOpenai.chat.completions.create({
-          model: this.visionModel,
-          messages: [{ role: "user", content: "hi" }],
-          max_tokens: 5,
-        });
-        logger.llm("图像识别LLM 连接成功！");
-      }
-
       return true;
     } catch (error: any) {
       logger.error(`LLM 连接失败: ${error.message}`);
@@ -594,34 +561,6 @@ ${response}
     // Format OHLC using ContextBuilder
     const formattedContext = ContextBuilder.buildContext(ohlc);
 
-    const canUseVisionForMain =
-      this.visionEnabled &&
-      this.visionUseForMain &&
-      Boolean(this.visionOpenai) &&
-      Boolean(this.visionModel);
-
-    let visionPreAnalysis: string | null = null;
-    if (this.visionEnabled && !this.visionUseForMain) {
-      try {
-        visionPreAnalysis = await this.getVisionPreAnalysisText(
-          symbol,
-          timeframe,
-          ohlc
-        );
-      } catch (error: any) {
-        logger.warn(
-          `[LLM 服务] 图像识别LLM预分析失败，已跳过: ${
-            error?.message || String(error)
-          }`
-        );
-        visionPreAnalysis = null;
-      }
-
-      logger.llm(
-        `[LLM 服务] 预分析注入状态: ${visionPreAnalysis ? "已注入" : "未注入"}`
-      );
-    }
-
     const userPromptTextOnly = `
 Current Market Context:
 Symbol: ${symbol}
@@ -637,14 +576,10 @@ Fee Rule:
 MARKET DATA:
 ${formattedContext}
 
-VISION PRE-ANALYSIS (from candlestick chart image):
-${visionPreAnalysis || "(disabled or unavailable)"}
-
 ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
 ${asciiChart}
 
 TASK:
-0. Read VISION PRE-ANALYSIS first, then verify it against the OHLC/context.
 1. Analyze the Market Cycle (Macro & Micro).
 2. Identify Setups.
 3. Evaluate the Signal Bar (Last bar).
@@ -675,23 +610,26 @@ ASCII Chart (Visual Representation, Last ${config.llm.chartLimit} bars):
 ${asciiChart}
 
 TASK:
-1. Analyze the Market Cycle (Macro & Micro) using both the OHLC/context and the chart image.
-2. Identify Setups.
-3. Evaluate the Signal Bar (Last bar).
+0. Analyze the chart image first. Extract key price-action structures and levels.
+1. Analyze the Macro Context section in MARKET DATA.
+2. Analyze the Micro Action section in MARKET DATA (focus on the LAST BAR).
+3. Identify setups and evaluate the Signal Bar.
 4. Make a Decision.
 
 Return JSON only.
 `;
 
     try {
-      const shouldUseVisionMain = canUseVisionForMain;
+      await this.ensureVisionCapabilityChecked();
+      const shouldUseVisionMain =
+        this.visionEnabled && this.visionCapabilityAvailable;
 
       const userPrompt = shouldUseVisionMain
         ? userPromptVisionMain
         : userPromptTextOnly;
 
-      const client = shouldUseVisionMain ? this.visionOpenai! : this.openai;
-      const model = shouldUseVisionMain ? this.visionModel : this.model;
+      const client = this.openai;
+      const model = this.model;
 
       let messages: any[];
       if (shouldUseVisionMain) {
@@ -706,7 +644,7 @@ Return JSON only.
             ] as any,
           },
         ];
-        logger.llm(`[LLM 服务] 主分析已切换为图像识别LLM (${model})`);
+        logger.llm(`[LLM 服务] 主分析已启用K线图像分析 (${model})`);
         logger.llm(
           `[LLM 服务] 已生成K线图像并附加到主分析请求: candles=${ohlc.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
         );
@@ -722,25 +660,11 @@ Return JSON only.
           model,
           messages,
           response_format: { type: "json_object" },
-          ...(shouldUseVisionMain
-            ? this.visionTemperature !== undefined
-              ? { temperature: this.visionTemperature }
-              : {}
-            : this.temperature !== undefined
+          ...(this.temperature !== undefined
             ? { temperature: this.temperature }
             : {}),
-          ...(shouldUseVisionMain
-            ? this.visionTopP !== undefined
-              ? { top_p: this.visionTopP }
-              : {}
-            : this.topP !== undefined
-            ? { top_p: this.topP }
-            : {}),
-          ...(shouldUseVisionMain
-            ? this.visionMaxTokens !== undefined
-              ? { max_tokens: this.visionMaxTokens }
-              : {}
-            : this.maxTokens !== undefined
+          ...(this.topP !== undefined ? { top_p: this.topP } : {}),
+          ...(this.maxTokens !== undefined
             ? { max_tokens: this.maxTokens }
             : {}),
           ...(!shouldUseVisionMain &&

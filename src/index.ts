@@ -16,16 +16,7 @@ async function main() {
     );
     logger.info(`- 策略: ${config.strategy.timeframe} 时间框架`);
     logger.info(`- LLM: ${config.llm.provider} (${config.llm.model})`);
-    logger.info(
-      `- 图像预分析LLM: ${config.visionLlm.enabled ? "启用" : "禁用"} (${
-        config.visionLlm.model || "未配置模型"
-      })`
-    );
-    logger.info(
-      `- 主分析使用图像识别LLM: ${
-        config.visionLlm.enabled && config.visionLlm.useForMain ? "是" : "否"
-      }`
-    );
+    logger.info(`- K线图像分析: ${config.llm.visionEnabled ? "启用" : "禁用"}`);
     logger.info("--------------------------------");
 
     // 2. 初始化交易所管理器
@@ -38,6 +29,10 @@ async function main() {
     const isLlmConnected = await llmService.testConnection();
     if (!isLlmConnected) {
       throw new Error("无法连接到 LLM 服务");
+    }
+
+    if (config.llm.visionEnabled) {
+      await llmService.validateVisionCapability();
     }
 
     logger.info("--------------------------------");
