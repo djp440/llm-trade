@@ -67,8 +67,26 @@ export class LLMService {
 
     // 建议使用稍微大一点的图片，增加 Provider 兼容性
     // 这是一个 64x64 的纯黑色 PNG
-    const testImageDataUrl =
+    let testImageDataUrl =
       "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg";
+
+    try {
+      const localTestImagePath = path.join(__dirname, "test.png");
+      if (fs.existsSync(localTestImagePath)) {
+        const imageBuffer = fs.readFileSync(localTestImagePath);
+        const base64Image = imageBuffer.toString("base64");
+        testImageDataUrl = `data:image/png;base64,${base64Image}`;
+        logger.llm(`[LLM 服务] 使用本地测试图片: ${localTestImagePath}`);
+      } else {
+        logger.llm(
+          `[LLM 服务] 本地测试图片不存在 (${localTestImagePath})，将使用默认网络图片`
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `[LLM 服务] 读取本地测试图片失败: ${err}，将使用默认网络图片`
+      );
+    }
 
     try {
       logger.llm(`[LLM 服务] 正在验证主 LLM 图片识别能力 (${this.model})...`);
