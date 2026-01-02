@@ -47,7 +47,7 @@ async function main() {
     }
 
     const managers = activeSymbols.map(
-      symbol => new TradeManager(symbol, exchangeManager)
+      symbol => new TradeManager(symbol, exchangeManager, llmService)
     );
 
     // 并行运行所有循环

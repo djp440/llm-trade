@@ -17,7 +17,6 @@ enum TradeState {
 
 export class TradeManager {
   private marketData: MarketDataManager;
-  private llmService: LLMService;
   private executor: TradeExecutor;
   private isRunning: boolean = false;
   private state: TradeState = TradeState.SEARCHING;
@@ -28,10 +27,10 @@ export class TradeManager {
 
   constructor(
     private symbol: string,
-    private exchangeManager: ExchangeManager
+    private exchangeManager: ExchangeManager,
+    private llmService: LLMService
   ) {
     this.marketData = new MarketDataManager(exchangeManager, symbol);
-    this.llmService = new LLMService();
     this.executor = new TradeExecutor(exchangeManager);
   }
 
