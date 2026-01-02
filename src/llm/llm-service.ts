@@ -768,7 +768,7 @@ Return JSON only.
       return {
         ...signal,
         decision: "REJECT",
-        reason: `信号字段不完整或包含无效数值，已拒绝。原因：${signal.reason}`,
+        reason: `LLM已给出入场信号，但程序已拒绝：信号字段不完整或包含无效数值，已拒绝。原因：${signal.reason}`,
       };
     }
 
@@ -810,7 +810,7 @@ Return JSON only.
       return {
         ...signal,
         decision: "REJECT",
-        reason: `已按佣金费率 ${commissionRatePercent}% 计算净盈亏比后拒绝：净R/R=${rrText} (阈值>=${minNetRR})，净收益=${netReward.toFixed(
+        reason: `LLM已给出入场信号，但程序已拒绝：按佣金费率 ${commissionRatePercent}% 计算净盈亏比后拒绝：净R/R=${rrText} (阈值>=${minNetRR})，净收益=${netReward.toFixed(
           6
         )}。原因：${signal.reason}`,
       };
