@@ -358,11 +358,12 @@ function renderCandlesToPng(options: {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
-  const timeframe = opts.timeframe || config.strategy.timeframe;
+  const timeframe =
+    opts.timeframe || config.strategy.timeframes.trading.interval;
   const lookback =
     opts.lookback !== undefined
       ? Math.max(2, Math.floor(opts.lookback))
-      : config.strategy.lookback_candles;
+      : config.strategy.timeframes.trading.limit;
   const bufferMs =
     opts.bufferMs !== undefined ? Math.max(0, Math.floor(opts.bufferMs)) : 5000;
   const width =
@@ -464,6 +465,8 @@ async function main() {
         const signal = await llmService.analyzeMarket(
           symbol,
           candles,
+          candles, // Mock context
+          candles, // Mock trend
           accountEquity,
           riskPerTrade
         );

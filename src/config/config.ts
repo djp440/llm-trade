@@ -7,17 +7,24 @@ import { logger } from "../utils/logger";
 // Load environment variables immediately
 dotenv.config();
 
-export interface TelescopeConfig {
-  micro_count: number;
-  macro_group_size: number;
+export interface TimeframeSettings {
+  interval: string;
+  limit: number;
+  include_features: boolean;
+}
+
+export interface TimeframesConfig {
+  trading: TimeframeSettings;
+  context: TimeframeSettings;
+  trend: TimeframeSettings;
 }
 
 export interface StrategyConfig {
-  timeframe: string;
-  lookback_candles: number;
+  // New MTF support
+  timeframes: TimeframesConfig;
+
   risk_per_trade: number;
   max_open_positions: number;
-  telescope: TelescopeConfig;
 }
 
 export interface SymbolsConfig {
@@ -252,15 +259,37 @@ export class ConfigLoader {
 
       // TOML Strategy Config
       strategy: {
-        timeframe: tomlConfig.strategy?.timeframe || "15m",
-        lookback_candles: tomlConfig.strategy?.lookback_candles || 20,
+        timeframes: {
+          trading: {
+            interval:
+              tomlConfig.strategy?.timeframes?.trading?.interval ||
+              tomlConfig.strategy?.timeframe ||
+              "5m",
+            limit:
+              tomlConfig.strategy?.timeframes?.trading?.limit ||
+              tomlConfig.strategy?.lookback_candles ||
+              30,
+            include_features:
+              tomlConfig.strategy?.timeframes?.trading?.include_features ??
+              true,
+          },
+          context: {
+            interval:
+              tomlConfig.strategy?.timeframes?.context?.interval || "1h",
+            limit: tomlConfig.strategy?.timeframes?.context?.limit || 15,
+            include_features:
+              tomlConfig.strategy?.timeframes?.context?.include_features ??
+              false,
+          },
+          trend: {
+            interval: tomlConfig.strategy?.timeframes?.trend?.interval || "4h",
+            limit: tomlConfig.strategy?.timeframes?.trend?.limit || 10,
+            include_features:
+              tomlConfig.strategy?.timeframes?.trend?.include_features ?? false,
+          },
+        },
         risk_per_trade: riskPerTradePercent / 100,
         max_open_positions: tomlConfig.strategy?.max_open_positions || 3,
-        telescope: {
-          micro_count: tomlConfig.strategy?.telescope?.micro_count || 30,
-          macro_group_size:
-            tomlConfig.strategy?.telescope?.macro_group_size || 6,
-        },
       },
       symbols: {
         active: tomlConfig.symbols?.active || [],

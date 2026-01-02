@@ -12,14 +12,25 @@ max_tokens = 4000 # 单次回复最大 token 数，留空则使用服务端默�
 reasoning_effort = "medium" # ignore|none|low|medium|high；ignore 表示不随请求发送该字段
 identity_role = "daytrader"
 [strategy]
-lookback_candles = 192 # 发送给LLM的K线数量
 max_open_positions = 3 # 最大同时持仓币种数
 risk_per_trade = 1.0 # 单笔风险（百分比制）。例如 1 表示 1%
-timeframe = "15m" 
 
-[strategy.telescope]
-macro_group_size = 2 # Macro View 的聚合 K 线数量
-micro_count = 30 # Micro View 的 K 线数量
+# Multi-Timeframe Configuration
+[strategy.timeframes.trading]
+interval = "5m"
+limit = 30
+include_features = true
+
+[strategy.timeframes.context]
+interval = "1h"
+limit = 15
+include_features = false
+
+[strategy.timeframes.trend]
+interval = "4h"
+limit = 10
+include_features = false
+
 
 [symbols]
 # 启用的交易对列表

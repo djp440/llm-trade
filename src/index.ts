@@ -14,7 +14,9 @@ async function main() {
     logger.info(
       `- 交易所: ${config.exchange.id} (沙盒模式: ${config.exchange.isSandbox})`
     );
-    logger.info(`- 策略: ${config.strategy.timeframe} 时间框架`);
+    logger.info(
+      `- 策略: ${config.strategy.timeframes.trading.interval} 时间框架 (MTF)`
+    );
     logger.info(`- LLM: ${config.llm.provider} (${config.llm.model})`);
     logger.info(`- K线图像分析: ${config.llm.visionEnabled ? "启用" : "禁用"}`);
     logger.info("--------------------------------");

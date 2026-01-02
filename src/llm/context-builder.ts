@@ -4,60 +4,63 @@ import { ConfigLoader } from "../config/config";
 
 export class ContextBuilder {
   /**
-   * Builds the context for the LLM using the "Telescope" strategy.
-   * Splits data into Macro (summarized) and Micro (detailed with features).
+   * Builds the Multi-Timeframe (MTF) context for the LLM.
+   * - Trading: Detailed features (Al Brooks) + EMA
+   * - Context: EMA only
+   * - Trend: EMA only
    */
-  public static buildContext(ohlc: OHLC[]): string {
-    if (!ohlc || ohlc.length === 0) return "No Data Available";
+  public static buildMTFContext(
+    tradingData: OHLC[],
+    contextData: OHLC[],
+    trendData: OHLC[],
+    timeframes: { trading: string; context: string; trend: string }
+  ): string {
+    const tradingContext = this.enrichData(tradingData, true);
+    const contextContext = this.enrichData(contextData, false);
+    const trendContext = this.enrichData(trendData, false);
 
-    const config = ConfigLoader.getInstance();
-    const microCount = config.strategy.telescope.micro_count;
-    const macroGroupSize = config.strategy.telescope.macro_group_size;
+    const context = {
+      trading: {
+        interval: timeframes.trading,
+        data: tradingContext,
+      },
+      context: {
+        interval: timeframes.context,
+        data: contextContext,
+      },
+      trend: {
+        interval: timeframes.trend,
+        data: trendContext,
+      },
+    };
 
-    // 1. Enrich Data with Indicators (EMA 20)
-    const enrichedData = this.enrichData(ohlc);
-
-    // 2. Split Data
-    const splitIndex = Math.max(0, enrichedData.length - microCount);
-
-    const macroData = enrichedData.slice(0, splitIndex);
-    const microData = enrichedData.slice(splitIndex);
-
-    // 3. Build Macro Context (Summarized)
-    const macroContext = this.buildMacroContext(macroData, macroGroupSize);
-
-    // 4. Build Micro Context (Detailed with Features)
-    const microContext = this.buildMicroContext(microData);
-
-    return `
-=== MACRO CONTEXT (Historical Summary, ${macroGroupSize}-Bar Blocks) ===
-${macroContext}
-
-=== MICRO ACTION (Recent ${microData.length} Bars with Al Brooks Features) ===
-${microContext}
-`;
+    return JSON.stringify(context, null, 2);
   }
 
-  private static enrichData(ohlc: OHLC[]): EnrichedOHLC[] {
+  private static enrichData(
+    ohlc: OHLC[],
+    includeFeatures: boolean
+  ): EnrichedOHLC[] {
     const ema20 = TechnicalIndicators.calculateEMA(ohlc, 20);
-
-    // Calculate Volume SMA for Vol Spike
-    const volSMA = this.calculateVolumeSMA(ohlc, 20);
+    const volSMA = includeFeatures ? this.calculateVolumeSMA(ohlc, 20) : [];
 
     return ohlc.map((bar, index) => {
-      const prevBar = index > 0 ? ohlc[index - 1] : null;
-      const features = this.calculateFeatures(
-        bar,
-        prevBar,
-        ema20[index],
-        volSMA[index]
-      );
-
-      return {
+      const result: EnrichedOHLC = {
         ...bar,
         ema20: ema20[index] || undefined,
-        features,
       };
+
+      if (includeFeatures) {
+        const prevBar = index > 0 ? ohlc[index - 1] : null;
+        result.features = this.calculateFeatures(
+          bar,
+          prevBar,
+          ema20[index],
+          volSMA[index] || null
+        );
+      }
+
+      return result;
     });
   }
 
@@ -134,65 +137,5 @@ ${microContext}
       vol_spike,
       overlap,
     };
-  }
-
-  private static buildMacroContext(
-    data: EnrichedOHLC[],
-    groupSize: number
-  ): string {
-    if (data.length === 0) return "(No historical data)";
-
-    const summaries: string[] = [];
-
-    for (let i = 0; i < data.length; i += groupSize) {
-      const chunk = data.slice(i, i + groupSize);
-      if (chunk.length === 0) continue;
-
-      const first = chunk[0];
-      const last = chunk[chunk.length - 1];
-
-      let maxHigh = -Infinity;
-      let minLow = Infinity;
-
-      chunk.forEach(c => {
-        if (c.high > maxHigh) maxHigh = c.high;
-        if (c.low < minLow) minLow = c.low;
-      });
-
-      const startTime = new Date(first.timestamp)
-        .toISOString()
-        .substring(5, 16) // MM-DD HH:MM
-        .replace("T", " ");
-      // Trend direction in this block
-      const change = last.close - first.open;
-      const trend = change > 0 ? "UP" : "DOWN";
-      const volatility = maxHigh - minLow;
-
-      summaries.push(`[${startTime}] H:${maxHigh} L:${minLow} Dir:${trend}`);
-    }
-
-    return summaries.join(" -> ");
-  }
-
-  private static buildMicroContext(data: EnrichedOHLC[]): string {
-    return data
-      .map((bar, i) => {
-        const time = new Date(bar.timestamp)
-          .toISOString()
-          .substring(5, 16) // MM-DD HH:MM
-          .replace("T", " ");
-        const f = bar.features!;
-        const emaStr = bar.ema20 ? bar.ema20.toFixed(2) : "N/A";
-
-        let line = `Bar[${i}] ${time} | O:${bar.open} H:${bar.high} L:${bar.low} C:${bar.close} | Type:${f.bar_type} Str:${f.close_strength} EMA:${f.ema_relation}(${emaStr}) VolSpike:${f.vol_spike} Overlap:${f.overlap}`;
-
-        // Mark the last bar as the Signal Bar
-        if (i === data.length - 1) {
-          line += " <--- CURRENT SIGNAL BAR (LATEST)";
-        }
-
-        return line;
-      })
-      .join("\n");
   }
 }

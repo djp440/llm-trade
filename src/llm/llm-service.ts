@@ -375,26 +375,26 @@ export class LLMService {
 - Targeting Rule: Do NOT use a fixed multiplier (like 1.5x) for Take Profit. Instead, look at the Chart Image and Macro Context to identify the Next Major Resistance Level (e.g., previous swing high, H4 resistance). Set Take Profit at that structural level. Rationale: We are trading breakouts. If the breakout succeeds, price should travel to the next magnet level, providing a much higher R/R (e.g., 1:3, 1:5).
 
 
-### DATA INPUT FORMAT ("Telescope" Strategy)
-You will receive data in up to three layers:
-1. **Chart Image** (Optional): A visual representation of the recent price action (Candlestick Chart).
-2. **Macro Context**: Summarized history to understand the big picture (Trend vs Range).
-3. **Micro Action**: Detailed recent bars with pre-calculated Al Brooks features.
-   - The list is sorted chronologically: **Oldest -> Newest**.
-   - The **LAST BAR** in the list is the **CURRENT SIGNAL BAR** you must evaluate.
+### DATA INPUT FORMAT (Multi-Timeframe Strategy)
+You will receive data in three timeframes (plus optional Chart Image):
+1. **Trading** (e.g., 5m): Detailed bars with Al Brooks features (bar_type, close_strength, etc).
+2. **Context** (e.g., 1h): Higher timeframe for intermediate trend.
+3. **Trend** (e.g., 4h): Highest timeframe for major trend direction.
+   - The lists are sorted chronologically: **Oldest -> Newest**.
+   - The **LAST BAR** in the **Trading** list is the **CURRENT SIGNAL BAR**.
    - \`bar_type\`: "Bull Trend", "Bear Trend", or "Doji".
    - \`close_strength\`: 0.0 (Low) to 1.0 (High). Indicates buying/selling pressure.
    - \`ema_relation\`: Position relative to 20 EMA.
    - \`overlap\`: Market churn/indecision.
 
 **IMPORTANT HANDLING INSTRUCTIONS**:
-- **If you receive a Chart Image**: You MUST analyze the image FIRST. The visual market background shown in the image is the primary source of truth. Use Macro and Micro data to support your visual analysis.
-- **If you DO NOT receive a Chart Image**: Proceed directly with analyzing the Macro and Micro data.
+- **If you receive a Chart Image**: You MUST analyze the image FIRST (Visual Analysis).
+- **If you DO NOT receive a Chart Image**: Proceed directly with analyzing the MTF data.
 
-**INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags. Focus on the LATEST bar for signal confirmation.
+**INSTRUCTION**: DO NOT calculate raw numbers manually. Trust the provided feature tags. Focus on the LATEST Trading bar for signal confirmation.
 
 ### CORE PHILOSOPHY (Al Brooks)
-1. **Context is King**: Always determine the Market Cycle first.
+1. **Context is King**: Always determine the Market Cycle first (using Trend/Context timeframes).
 2. **Trader's Equation**: Probability * Reward > (1 - Probability) * Risk.
 3. **20-Period EMA**: Primary trend reference.
    - Price > EMA = Bullish bias.
@@ -558,14 +558,18 @@ ${response}
   /**
    * Analyzes the market data using LLM to generate trade signals.
    * @param symbol Trading pair symbol (e.g., "BTC/USDT")
-   * @param ohlc Array of OHLC data
+   * @param tradingData Array of OHLC data for Trading timeframe
+   * @param contextData Array of OHLC data for Context timeframe
+   * @param trendData Array of OHLC data for Trend timeframe
    * @param accountEquity Current account equity
    * @param riskPerTrade Risk per trade (e.g., 0.01 for 1%)
    * @returns Promise<TradeSignal>
    */
   public async analyzeMarket(
     symbol: string,
-    ohlc: OHLC[],
+    tradingData: OHLC[],
+    contextData: OHLC[],
+    trendData: OHLC[],
     accountEquity: number,
     riskPerTrade: number
   ): Promise<TradeSignal> {
@@ -577,11 +581,11 @@ ${response}
       symbol,
       accountEquity,
       riskPerTrade,
-      ohlcData: ohlc,
+      ohlcData: tradingData,
     };
 
     // 3. Construct Prompt
-    const timeframe = ConfigLoader.getInstance().strategy.timeframe;
+    const timeframe = config.strategy.timeframes.trading.interval;
     const minNetRR = this.getMinNetRR();
     const systemPrompt = this.buildSystemPrompt({
       timeframe,
@@ -589,7 +593,16 @@ ${response}
     });
 
     // Format OHLC using ContextBuilder
-    const formattedContext = ContextBuilder.buildContext(ohlc);
+    const formattedContext = ContextBuilder.buildMTFContext(
+      tradingData,
+      contextData,
+      trendData,
+      {
+        trading: config.strategy.timeframes.trading.interval,
+        context: config.strategy.timeframes.context.interval,
+        trend: config.strategy.timeframes.trend.interval,
+      }
+    );
 
     const userPromptTextOnly = `
 Current Market Context:
@@ -603,13 +616,13 @@ Fee Rule:
 - Fee is charged on notional at both entry and exit.
 - If net profit after entry+exit fees is <= 0, or net R/R < ${minNetRR}, return REJECT.
 
-MARKET DATA:
+MARKET DATA (Multi-Timeframe):
 ${formattedContext}
 
 TASK:
-1. Analyze the Market Cycle (Macro & Micro).
+1. Analyze the Market Cycle (Trend/Context/Trading).
 2. Identify Setups.
-3. Evaluate the Signal Bar (Last bar).
+3. Evaluate the Signal Bar (Last Trading bar).
 4. Make a Decision.
 
 Return JSON only.
@@ -627,18 +640,17 @@ Fee Rule:
 - Fee is charged on notional at both entry and exit.
 - If net profit after entry+exit fees is <= 0, or net R/R < ${minNetRR}, return REJECT.
 
-MARKET DATA:
+MARKET DATA (Multi-Timeframe):
 ${formattedContext}
 
 CHART IMAGE:
-- A candlestick chart image is attached to this request. Read it as the primary visual reference.
+- A candlestick chart image (Trading Timeframe) is attached to this request. Read it as the primary visual reference.
 
 TASK:
 0. Analyze the chart image first. Extract key price-action structures and levels.
-1. Analyze the Macro Context section in MARKET DATA.
-2. Analyze the Micro Action section in MARKET DATA (focus on the LAST BAR).
-3. Identify setups and evaluate the Signal Bar.
-4. Make a Decision.
+1. Analyze the MTF Market Cycle.
+2. Identify setups and evaluate the Signal Bar.
+3. Make a Decision.
 
 Return JSON only.
 `;
@@ -657,7 +669,8 @@ Return JSON only.
 
       let messages: any[];
       if (shouldUseVisionMain) {
-        const chart = this.buildChartImageDataUrl(ohlc);
+        // Use Trading Data for Chart
+        const chart = this.buildChartImageDataUrl(tradingData);
         messages = [
           { role: "system", content: systemPrompt },
           {
@@ -670,7 +683,7 @@ Return JSON only.
         ];
         logger.llm(`[LLM 服务] 主分析已启用K线图像分析 (${model})`);
         logger.llm(
-          `[LLM 服务] 已生成K线图像并附加到主分析请求: candles=${ohlc.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
+          `[LLM 服务] 已生成K线图像并附加到主分析请求: candles=${tradingData.length} bytes=${chart.bytes} base64Chars=${chart.base64Chars} sha256_12=${chart.sha256_12}`
         );
       } else {
         messages = [
@@ -810,7 +823,9 @@ Return JSON only.
    */
   public async analyzePendingOrder(
     symbol: string,
-    ohlc: OHLC[],
+    tradingData: OHLC[],
+    contextData: OHLC[],
+    trendData: OHLC[],
     accountEquity: number,
     riskPerTrade: number,
     pendingOrder: {
@@ -821,7 +836,9 @@ Return JSON only.
   ): Promise<PendingOrderDecision> {
     const signal = await this.analyzeMarket(
       symbol,
-      ohlc,
+      tradingData,
+      contextData,
+      trendData,
       accountEquity,
       riskPerTrade
     );

@@ -24,7 +24,7 @@ async function testConnection() {
     // or a network error.
     
     logger.info("Sending request to LLM...");
-    const result = await service.analyzeMarket("BTC/USDT", mockOHLC, 1000, 0.01);
+    const result = await service.analyzeMarket("BTC/USDT", mockOHLC, mockOHLC, mockOHLC, 1000, 0.01);
     
     logger.info("LLM Response received:");
     console.log(JSON.stringify(result, null, 2));

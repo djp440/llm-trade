@@ -46,7 +46,7 @@ export class TradeManager {
           continue;
         }
 
-        const timeframe = config.strategy.timeframe;
+        const timeframe = config.strategy.timeframes.trading.interval;
         const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
         const closeBufferMs = 5000;
 
@@ -88,19 +88,36 @@ export class TradeManager {
   private async processSignalSearch() {
     logger.info(`[交易管理器] ${this.symbol} - 开始信号搜索阶段`);
 
-    // 1. 获取数据
-    const lookback = config.strategy.lookback_candles;
-    const timeframe = config.strategy.timeframe;
+    // 1. 获取数据 (Multi-Timeframe)
+    const timeframes = config.strategy.timeframes;
 
     // 获取确认关闭的 K 线
     const nowMs = await this.getReferenceTimeMs();
-    const candles = await this.marketData.getConfirmedCandles(
-      timeframe,
-      lookback,
-      nowMs
+
+    // 并行获取三个时间框架的数据
+    // 确保至少获取25根以计算 EMA(20)
+    const [tradingCandles, contextCandles, trendCandles] = await Promise.all([
+      this.marketData.getConfirmedCandles(
+        timeframes.trading.interval,
+        Math.max(timeframes.trading.limit, 25),
+        nowMs
+      ),
+      this.marketData.getConfirmedCandles(
+        timeframes.context.interval,
+        Math.max(timeframes.context.limit, 25),
+        nowMs
+      ),
+      this.marketData.getConfirmedCandles(
+        timeframes.trend.interval,
+        Math.max(timeframes.trend.limit, 25),
+        nowMs
+      ),
+    ]);
+
+    const lastCandle = tradingCandles[tradingCandles.length - 1];
+    const msPerCandle = this.marketData.parseTimeframeToMs(
+      timeframes.trading.interval
     );
-    const lastCandle = candles[candles.length - 1];
-    const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
     const candleCloseMs = lastCandle.timestamp + msPerCandle;
 
     logger.info(
@@ -126,7 +143,9 @@ export class TradeManager {
 
     const signal = await this.llmService.analyzeMarket(
       this.symbol,
-      candles,
+      tradingCandles,
+      contextCandles,
+      trendCandles,
       equity,
       riskPerTrade
     );
@@ -157,7 +176,8 @@ export class TradeManager {
 
         const entryOrder = orders[0];
         const isPendingBreakoutPlan =
-          plan.entryOrder.type === "stop_market" || plan.entryOrder.type === "stop";
+          plan.entryOrder.type === "stop_market" ||
+          plan.entryOrder.type === "stop";
 
         if (entryOrder && isPendingBreakoutPlan) {
           this.state = TradeState.PENDING_ENTRY;
@@ -284,17 +304,34 @@ export class TradeManager {
           return;
         }
 
-        // 获取最新 K 线
+        // 获取最新 K 线 (Multi-Timeframe)
+        const timeframes = config.strategy.timeframes;
         const nowMs = await this.getReferenceTimeMs();
-        const candles = await this.marketData.getConfirmedCandles(
-          config.strategy.timeframe,
-          config.strategy.lookback_candles,
-          nowMs
-        );
+
+        const [tradingCandles, contextCandles, trendCandles] =
+          await Promise.all([
+            this.marketData.getConfirmedCandles(
+              timeframes.trading.interval,
+              Math.max(timeframes.trading.limit, 25),
+              nowMs
+            ),
+            this.marketData.getConfirmedCandles(
+              timeframes.context.interval,
+              Math.max(timeframes.context.limit, 25),
+              nowMs
+            ),
+            this.marketData.getConfirmedCandles(
+              timeframes.trend.interval,
+              Math.max(timeframes.trend.limit, 25),
+              nowMs
+            ),
+          ]);
 
         const decision = await this.llmService.analyzePendingOrder(
           this.symbol,
-          candles,
+          tradingCandles,
+          contextCandles,
+          trendCandles,
           equity,
           config.strategy.risk_per_trade,
           {
