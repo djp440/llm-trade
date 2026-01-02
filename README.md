@@ -1,89 +1,135 @@
-# llm-trade
+# LLM-Trade: AI 驱动的价格行为交易系统
 
-基于 **LLM + Al Brooks 价格行为（Price Action）** 的自动化交易实验项目：使用 **CCXT** 对接交易所（默认 Bitget），在每根 K 线收盘后拉取行情，构造上下文请求大模型（DeepSeek / 任何 OpenAI API 兼容端点），由模型输出严格 JSON 信号，并由程序执行突破单/市价单及止盈止损。
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/runtime-Node.js-green.svg)](https://nodejs.org/)
 
-> 风险提示：本项目包含真实下单能力。请务必先在模拟盘运行，并自行评估交易风险。作者不对任何资金损失负责。
+**LLM-Trade** 是一个基于 **Al Brooks 价格行为学 (Price Action)** 的自动化交易实验项目。它结合了传统量化交易框架与现代大语言模型 (LLM)，利用任何兼容 OpenAI API 的模型的图表理解与逻辑推理能力，实现全自动的加密货币交易决策与执行。
 
-## 功能特性
+> 👀 **使用建议**：建议您使用拥有视觉能力的 LLM 以获得完整分析功能。
 
-- **多交易对并行**：按 `config.toml` 中的 `symbols.active` 并行启动交易循环
-- **收盘驱动**：按 `strategy.timeframe` 等待 K 线收盘 + 缓冲后再分析
-- **LLM 信号输出**：大模型按严格 JSON 输出 `APPROVE/REJECT`、`BUY/SELL`、入场/止损/止盈
-- **风险仓位计算**：基于账户权益与单笔风险比例计算下单数量，并应用交易所精度/最小名义价值校验
-- **突破单逻辑**：价格未到达入场位时走触发单（Stop）；已突破则走市价兜底
-- **挂单复核**：挂单未成交时，周期性请求 LLM 决定 `KEEP/CANCEL`
-- **日志落盘**：默认写入 `./logs/log_YYYY-MM-DD_HH-mm-ss.log`
+> ⚠️ **风险提示**：本项目包含真实下单能力，请务必先在 **模拟盘 (Sandbox)** 环境下充分测试。**您需要自行评估交易风险，作者不对任何资金损失或财务风险负责**。
 
-## 技术栈
+---
 
-- Node.js + TypeScript
-- 交易所：CCXT
-- LLM：OpenAI SDK（可配置 DeepSeek/其他兼容端点）
-- 配置：`.env`（敏感信息）+ `config.toml`（策略参数，TOML）
+## 核心特性
+
+- **🤖 LLM 驱动决策**：
+
+  - 将 K 线数据转化为 **ASCII 图表** 与结构化数据，投喂给 LLM。
+  - 由 LLM 分析市场背景、趋势与形态，输出严格的 JSON 交易信号 (`APPROVE`/`REJECT`)。
+  - 支持 **DeepSeek**、OpenAI 等兼容 API。
+
+- **⚡ 智能订单路由 ("沃尔玛交易法")**：
+
+  - **突破单 (Stop Market)**：价格未突破信号 K 线高低点时，挂出触发单等待突破。
+  - **市价单 (Market)**：若价格已突破，直接市价追入，避免踏空。
+  - **自动风控**：下单同时自动关联 **止盈 (TP)** 与 **止损 (SL)** 委托。
+
+- **🛡️ 严格风控管理**：
+
+  - **动态仓位计算**：基于账户权益百分比 (Risk Per Trade) 与止损距离自动计算下单数量。
+  - **交易所校验**：自动适配交易所的最小下单数量、精度限制与名义价值要求。
+
+- **🔄 多币种并行**：
+
+  - 基于状态机模型，支持同时监控多个交易对 (e.g., `BTC/USDT`, `ETH/USDT`)。
+  - 独立的状态循环：收盘检测 -> 数据拉取 -> LLM 分析 -> 信号执行 -> 持仓监控。
+
+- **📊 完备的工程化**：
+  - **TypeScript** 开发，提供完整的类型安全。
+  - **CCXT** 集成，支持 Bitget 等主流交易所（易于扩展）。
+  - **TOML + Env** 双层配置管理。
+  - 完善的日志系统，支持控制台与文件双写。
+
+---
+
+## 技术架构
+
+```text
+llm-trade/
+├── src/
+│   ├── config/           # 配置加载 (Env + TOML)
+│   ├── executor/         # 交易执行 (下单、撤单、仓位计算)
+│   ├── llm/              # LLM 交互 (Prompt 构建、ASCII 绘图、信号解析)
+│   ├── market/           # 行情管理 (CCXT 封装、K 线拉取)
+│   ├── monitor/          # 监控模块 (WebSocket 状态监听)
+│   ├── scripts/          # 独立验证脚本
+│   ├── utils/            # 工具库 (日志、指标计算)
+│   ├── index.ts          # 程序主入口
+│   └── trade-manager.ts  # 核心交易状态机
+├── doc/                  # 项目文档
+├── .env.example          # 环境变量模板
+└── config.toml.example   # 策略参数模板
+```
+
+---
 
 ## 快速开始
 
-> 运行环境：建议使用 Node.js LTS（>= 18）。
+### 1. 环境准备
 
-### 1) 安装依赖
+- **Node.js**: >= 18.0.0 (推荐 LTS 版本)
+- **包管理器**: npm 或 yarn
+
+### 2. 安装依赖
 
 ```bash
 npm install
 ```
 
-### 2) 配置环境变量
+### 3. 配置文件
 
-从示例复制一份 `.env`：
+#### 环境变量 (.env)
+
+复制模板并配置交易所 API 和 LLM 密钥：
 
 ```bash
 cp .env.example .env
+# Windows PowerShell:
+# Copy-Item .env.example .env
 ```
 
-Windows PowerShell：
+关键配置项：
 
-```powershell
-Copy-Item .env.example .env
-```
+- `IS_SANDBOX=true`：开启模拟盘模式（推荐初次运行时使用）。
+- `EXCHANGE_ID`：默认 `bitget`。
+- `LLM_API_KEY` & `LLM_BASE_URL`：配置你的 LLM 提供商。
 
-关键字段（示例见 [.env.example](./.env.example)）：
+#### 策略配置 (config.toml)
 
-- `EXCHANGE_ID`：交易所 id（默认 `bitget`）
-- `IS_SANDBOX`：`true` 使用模拟盘；`false` 使用实盘
-- `DEMO_API_KEY/DEMO_API_SECRET/DEMO_API_PASSWORD`：模拟盘密钥（Bitget 需要 passphrase 时使用）
-- `PROD_API_KEY/PROD_API_SECRET/PROD_API_PASSWORD`：实盘密钥
-- `LLM_PROVIDER/LLM_API_KEY/LLM_BASE_URL/LLM_MODEL`：LLM 连接配置
-
-### 3) 配置策略参数
-
-从示例复制一份 `config.toml`：
+复制模板并调整策略参数：
 
 ```bash
 cp config.toml.example config.toml
+# Windows PowerShell:
+# Copy-Item config.toml.example config.toml
 ```
 
-Windows PowerShell：
+关键配置项：
 
-```powershell
-Copy-Item config.toml.example config.toml
-```
+- `strategy.timeframe`：K 线周期 (如 `15m`)。
+- `strategy.risk_per_trade`：单笔交易风险比例 (如 `0.01` 代表 1%)。
+- `symbols.active`：启用的交易对列表。
 
-常用字段（示例见 [config.toml.example](./config.toml.example)）：
-
-- `strategy.timeframe`：K 线周期（如 `15m`）
-- `strategy.lookback_candles`：回看 K 线数量
-- `strategy.risk_per_trade`：单笔风险（百分比制，示例 `1.0` 表示 1%）
-- `symbols.active`：启用的交易对列表（如 `SOL/USDT:USDT`）
-- `execution.min_notional`：最小名义价值（USDT）
-
-### 4) 启动
+### 4. 启动程序
 
 ```bash
 npm start
 ```
 
-程序入口为 [src/index.ts](./src/index.ts)。启动时会依次：加载配置 → 初始化交易所 → 测试连接 → 测试 LLM 连接 → 启动每个交易对的循环。
+启动后，程序将：
 
-## 运行脚本
+1. 加载配置并自检。
+2. 连接交易所并验证 API 权限。
+3. 测试 LLM 连接。
+4. 为每个配置的交易对启动独立的交易循环。
+
+---
+
+## 开发与验证
+
+本项目提供了一系列脚本用于独立验证各个模块的功能。
 
 ### 类型检查
 
@@ -91,88 +137,39 @@ npm start
 npm run check
 ```
 
-### Bitget 计划委托附带止盈止损（E2E 验证）
+### E2E 验证 (Bitget 计划委托 + 止盈止损)
 
-脚本见 [src/scripts/bitget-plan-tpsl-e2e.ts](./src/scripts/bitget-plan-tpsl-e2e.ts)，文档见 [doc/bitget-plan-tpsl-e2e.md](./doc/bitget-plan-tpsl-e2e.md)。
+在运行主程序前，建议先运行此脚本验证交易所的下单接口是否正常：
 
 ```bash
+# 验证所有场景 (市价、限价、触发单)
 npx ts-node src/scripts/bitget-plan-tpsl-e2e.ts --scenario all
 ```
 
-## 项目结构
+更多详情请参考 [Bitget E2E 验证文档](doc/bitget-plan-tpsl-e2e.md)。
 
-```text
-llm-trade/
-  src/
-    config/           # .env + config.toml 加载与类型
-    executor/         # 下单与止盈止损执行
-    llm/              # Prompt 构建、LLM 调用、信号解析
-    market/           # 行情拉取与交易所封装
-    monitor/          # 持仓/订单监控（扩展点）
-    scripts/          # 独立验证/调试脚本
-    utils/            # 日志、指标、图表等工具
-    index.ts          # 主入口
-    trade-manager.ts  # 状态机交易循环
-  doc/                # 开发/验证文档
-  .env.example
-  config.toml.example
-```
+---
 
-## 交易流程概览
+## 文档索引
 
-每个交易对运行一个状态机（见 [TradeManager](./src/trade-manager.ts)）：
+- **[开发设计文档 (DEV_DOC.md)](doc/DEV_DOC.md)**: 详细的系统架构、模块设计与核心流程说明。
+- **[已完成工作 (Completed.md)](doc/Completed.md)**: 开发进度与功能变更记录。
 
-1. 等待 K 线收盘（基于交易所服务器时间）
-2. 拉取“已确认收盘”的 OHLC（避免未收盘数据干扰）
-3. 获取账户权益（默认按 USDT 口径）
-4. 请求 LLM 输出交易信号（严格 JSON）
-5. 生成交易计划并执行（突破触发单 / 市价兜底；止盈止损参数随单携带）
-6. 挂单未成交则在下一周期请求 LLM 复核并决定是否取消
+---
 
-## 常见问题
+## 常见问题 (FAQ)
 
-### 启动时报错无法加载 config.toml
+**Q: 为什么启动时提示无法加载 config.toml?**
+A: 请确保你已经将 `config.toml.example` 复制为 `config.toml`，该文件是策略运行的必需配置文件。
 
-`config.toml` 为必需文件。请确认已执行：
+**Q: LLM 返回的信号不稳定怎么办?**
+A: 可以在 `config.toml` 中调整 `lookback_candles` (回看 K 线数量) 或尝试更换更强大的模型 (如 GPT-4 或 Claude-3.5-Sonnet，如果 DeepSeek 表现不佳)。同时，Prompt 的微调也是优化方向之一。
 
-```bash
-cp config.toml.example config.toml
-```
+**Q: 如何切换实盘?**
+A: 在 `.env` 中设置 `IS_SANDBOX=false`，并填入 `PROD_API_KEY` 等实盘密钥。**请务必小资金测试。**
 
-Windows PowerShell：
-
-```powershell
-Copy-Item config.toml.example config.toml
-```
-
-### 交易所连接失败 / 权限不足
-
-- 确认 `.env` 中 `IS_SANDBOX` 与 API Key 类型一致
-- 确认合约/现货权限、IP 白名单、passphrase 等配置完整
-- 建议先运行 `bitget-plan-tpsl-e2e` 脚本验证下单与查询链路
-
-### LLM 连接失败
-
-- 确认 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 正确
-- 若使用非 DeepSeek 的 OpenAI 兼容服务，请确保返回格式与 OpenAI SDK 兼容
-
-## 安全建议
-
-- 不要提交 `.env`、`config.toml`、`logs/` 到仓库（已在 `.gitignore` 中忽略）
-- 强烈建议仅在模拟盘测试；实盘运行前请添加更严格的风控与回撤保护
-- 不要在共享机器/CI 中暴露密钥
-
-## 文档
-
-- 开发设计文档：[doc/DEV_DOC.md](./doc/DEV_DOC.md)
-- 已完成工作记录：[doc/Completed.md](./doc/Completed.md)
-
-## 未来计划
-
-1. **持仓过程中通过 LLM 动态管理仓位**：在持仓期间，由 LLM 根据最新 K 线动态调整止盈止损或主动减仓/平仓。
-2. **多 Agent 协同分析**：引入多个 Agent（如：趋势专家、波动率专家、宏观专家）共同参与决策，提高信号质量。
-3. **前端面板**：开发 Web 端 UI 面板，实现交易监控、资产统计、策略配置的可视化。
+---
 
 ## License
 
-本项目使用 Apache-2.0 许可证，详见 [LICENSE](./LICENSE)。
+本项目基于 [Apache-2.0](LICENSE) 协议开源。
