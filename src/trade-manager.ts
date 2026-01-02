@@ -24,6 +24,7 @@ export class TradeManager {
   private pendingTradePlan: TradePlan | null = null;
   private pendingEntryOrder: Order | null = null;
   private hasSeenOpenPosition: boolean = false;
+  private lastCandleLogTime: number = 0; // 用于记录上一次打印K线跳过日志的时间
 
   constructor(
     private symbol: string,
@@ -493,6 +494,24 @@ export class TradeManager {
   }
 
   private async processManaging() {
+    // 检查是否到达 K 线收盘时间并打印日志
+    const nowMs = Date.now();
+    const timeframe = config.strategy.timeframes.trading.interval;
+    const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
+
+    // 计算当前 K 线的起始时间（向下取整）
+    const currentCandleOpenMs = Math.floor(nowMs / msPerCandle) * msPerCandle;
+
+    // 如果当前 K 线还没有打印过日志，且确实已经进入了新的 K 线周期（与上次不同）
+    if (currentCandleOpenMs > this.lastCandleLogTime) {
+      // 为了避免在 K 线刚开始的瞬间频繁触发，可以稍微加一点缓冲判断，
+      // 但由于我们每 5 秒才检查一次，这里直接比较时间戳变更即可。
+      logger.info(
+        `[交易管理器] ${this.symbol} 已有持仓，跳过本轮分析 (${timeframe} K线收盘)。`
+      );
+      this.lastCandleLogTime = currentCandleOpenMs;
+    }
+
     try {
       const positionSize = await this.getPositionSize(this.symbol);
       const isOpen = Math.abs(positionSize) > 0;
