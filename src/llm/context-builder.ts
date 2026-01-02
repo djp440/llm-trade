@@ -36,24 +36,21 @@ export class ContextBuilder {
     interval: string
   ): string {
     const lines: string[] = [];
-    lines.push(
-      `[TREND: ${interval.toUpperCase()}] (Major Direction & Structure)`
-    );
-    lines.push(`Time        | Close     | EMA20     | Note`);
+    lines.push(`[TREND: ${interval.toUpperCase()}]`);
+    lines.push(`Time,Close,EMA20,Note`);
 
     data.forEach(bar => {
       const timeStr = this.formatDate(bar.timestamp, "MM-DD HH:mm");
-      const closeStr = bar.close.toFixed(2).padEnd(9);
-      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(9) : "         ";
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2) : "";
 
       let note = "";
       if (bar.ema20) {
-        if (bar.low > bar.ema20) note = "Above EMA";
-        else if (bar.high < bar.ema20) note = "Below EMA";
-        else note = "Testing EMA";
+        if (bar.low > bar.ema20) note = "Abv";
+        else if (bar.high < bar.ema20) note = "Blw";
+        else note = "Tst";
       }
 
-      lines.push(`${timeStr.padEnd(11)} | ${closeStr} | ${emaStr} | ${note}`);
+      lines.push(`${timeStr},${bar.close.toFixed(2)},${emaStr},${note}`);
     });
     return lines.join("\n");
   }
@@ -63,29 +60,24 @@ export class ContextBuilder {
     interval: string
   ): string {
     const lines: string[] = [];
-    lines.push(
-      `[CONTEXT: ${interval.toUpperCase()}] (Support/Resistance & Immediate Bias)`
-    );
-    lines.push(`Time   | High      | Low       | Close     | EMA20     | Rel`);
+    lines.push(`[CONTEXT: ${interval.toUpperCase()}]`);
+    lines.push(`Time,High,Low,Close,EMA20,Rel`);
 
     data.forEach(bar => {
       const timeStr = this.formatDate(bar.timestamp, "HH:mm");
-      const highStr = bar.high.toFixed(2).padEnd(9);
-      const lowStr = bar.low.toFixed(2).padEnd(9);
-      const closeStr = bar.close.toFixed(2).padEnd(9);
-      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(9) : "         ";
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2) : "";
 
       let rel = "";
       if (bar.ema20) {
-        if (bar.low > bar.ema20) rel = "Above";
-        else if (bar.high < bar.ema20) rel = "Below";
+        if (bar.low > bar.ema20) rel = "Abv";
+        else if (bar.high < bar.ema20) rel = "Blw";
         else rel = "On";
       }
 
       lines.push(
-        `${timeStr.padEnd(
-          6
-        )} | ${highStr} | ${lowStr} | ${closeStr} | ${emaStr} | ${rel}`
+        `${timeStr},${bar.high.toFixed(2)},${bar.low.toFixed(
+          2
+        )},${bar.close.toFixed(2)},${emaStr},${rel}`
       );
     });
     return lines.join("\n");
@@ -96,12 +88,8 @@ export class ContextBuilder {
     interval: string
   ): string {
     const lines: string[] = [];
-    lines.push(
-      `[TRADING: ${interval.toUpperCase()}] (Signal & Timing - Detailed)`
-    );
-    lines.push(
-      `Time   | Open    High    Low     Close   | EMA20   | Vol   | Bar(Str) | E-Rel`
-    );
+    lines.push(`[TRADING: ${interval.toUpperCase()}]`);
+    lines.push(`Time,Open,High,Low,Close,EMA20,Vol,Bar(Str),E-Rel`);
 
     data.forEach((bar, index) => {
       const isLast = index === data.length - 1;
@@ -111,13 +99,12 @@ export class ContextBuilder {
       const h = bar.high.toFixed(2);
       const l = bar.low.toFixed(2);
       const c = bar.close.toFixed(2);
-      const ohlcStr = `${o} ${h} ${l} ${c}`.padEnd(31);
 
-      const emaStr = bar.ema20 ? bar.ema20.toFixed(2).padEnd(7) : "       ";
-      const volStr = this.formatVolume(bar.volume).padEnd(5);
+      const emaStr = bar.ema20 ? bar.ema20.toFixed(2) : "";
+      const volStr = this.formatVolume(bar.volume);
 
-      let barStr = "        ";
-      let eRel = "     ";
+      let barStr = "";
+      let eRel = "";
 
       if (bar.features) {
         const typeCode = this.getShortBarType(bar.features.bar_type);
@@ -126,16 +113,14 @@ export class ContextBuilder {
         eRel = bar.features.ema_relation;
       } else if (bar.ema20) {
         // Fallback if no features
-        if (bar.low > bar.ema20) eRel = "Above";
-        else if (bar.high < bar.ema20) eRel = "Below";
+        if (bar.low > bar.ema20) eRel = "Abv";
+        else if (bar.high < bar.ema20) eRel = "Blw";
         else eRel = "On";
       }
 
-      let line = `${timeStr.padEnd(
-        6
-      )} | ${ohlcStr} | ${emaStr} | ${volStr} | ${barStr.padEnd(8)} | ${eRel}`;
+      let line = `${timeStr},${o},${h},${l},${c},${emaStr},${volStr},${barStr},${eRel}`;
       if (isLast) {
-        line += " <-- CURRENT SIGNAL";
+        line += " <-- SIGNAL";
       }
       lines.push(line);
     });
@@ -242,10 +227,10 @@ export class ContextBuilder {
     }
 
     // 3. EMA Relation
-    let ema_relation: "Above" | "Below" | "On" = "On";
+    let ema_relation: "Abv" | "Blw" | "On" = "On";
     if (ema !== null) {
-      if (bar.low > ema) ema_relation = "Above";
-      else if (bar.high < ema) ema_relation = "Below";
+      if (bar.low > ema) ema_relation = "Abv";
+      else if (bar.high < ema) ema_relation = "Blw";
       else ema_relation = "On"; // Touching or crossing
     }
 

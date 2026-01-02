@@ -28,7 +28,7 @@ export interface TradeSignal {
 export interface AlBrooksFeatures {
   bar_type: "Bull Trend" | "Bear Trend" | "Doji";
   close_strength: number; // 0.0 - 1.0
-  ema_relation: "Above" | "Below" | "On";
+  ema_relation: "Abv" | "Blw" | "On";
   vol_spike: boolean;
   overlap: boolean;
 }
