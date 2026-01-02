@@ -10,7 +10,7 @@ dotenv.config();
 async function main() {
   try {
     // You can point to the new Binance CSV file here
-    const csvPath = "f:\\project\\llm-trade\\data\\ETHUSDT-15m-2025-09.csv";
+    const csvPath = path.join(__dirname, "..", "data", "ETHUSDT-15m-2025-09.csv");
     // Or fallback to default if it doesn't exist
     // const csvPath = "f:\\project\\llm-trade\\data\\backtest_data.csv";
 
