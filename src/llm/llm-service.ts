@@ -443,9 +443,6 @@ You MUST return a JSON object.
 **CRITICAL**: The \`reason\` field MUST be written in **Simplified Chinese (简体中文)** to explain your thinking to the user.
 
 {
-    "analysis_step_1_market_cycle": "String. Define phase: Strong Trend / Broad Channel / Trading Range / TTR. State 'Always In' direction.",
-    "analysis_step_2_setup": "String. Identify the specific setup (e.g., 'H2 Buy at EMA', 'Wedge Top', 'L2 Short').",
-    "analysis_step_3_signal_bar": "String. Analyze the Signal Bar quality (Strong/Weak).",
     "decision": "APPROVE" | "REJECT",
     "reason": "String. [Simplified Chinese] Explain logic based on Probability, Risk, and Reward. Why is this a good/bad trade?",
     "action": "BUY" | "SELL" | "NONE",
