@@ -69,5 +69,5 @@ export function getIdentityRoleRiskParams(role: LlmIdentityRole): {
   if (role === "scalper") return { minNetRR: 1 };
   if (role === "swing") return { minNetRR: 1.5 };
   if (role === "trend") return { minNetRR: 3.0 };
-  return { minNetRR: 1.0 };
+  return { minNetRR: 0.5 };
 }
