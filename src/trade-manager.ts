@@ -38,6 +38,9 @@ export class TradeManager {
     this.isRunning = true;
     logger.info(`[交易管理器] 正在启动 ${this.symbol} 的循环`);
 
+    // 启动前先检查账户状态，避免重复开仓或忽略已有持仓
+    await this.initializeState();
+
     while (this.isRunning) {
       try {
         if (this.state === TradeState.MANAGING) {
@@ -82,6 +85,73 @@ export class TradeManager {
         logger.error(`[交易管理器] ${this.symbol} 循环出错: ${error.message}`);
         await this.sleep(10000); // 错误退避
       }
+    }
+  }
+
+  private async initializeState() {
+    logger.info(`[交易管理器] 正在初始化状态...`);
+
+    try {
+      // 1. 检查是否有持仓
+      const positionSize = await this.getPositionSize(this.symbol);
+      if (Math.abs(positionSize) > 0) {
+        logger.important(
+          `[交易管理器] 初始化检测到现有持仓 (${positionSize})，恢复为 MANAGING 状态。`
+        );
+        this.state = TradeState.MANAGING;
+        this.hasSeenOpenPosition = true;
+        return;
+      }
+
+      // 2. 检查是否有挂单
+      // 由于内存中丢失了 TradePlan，我们无法继续智能管理这些挂单（缺少止损/止盈/理由等上下文）。
+      // 为了安全起见，建议取消这些残留挂单，从干净的状态开始。
+      const exchange: any = this.exchangeManager.getExchange();
+      try {
+        const openOrders = await exchange.fetchOpenOrders(this.symbol);
+        if (openOrders.length > 0) {
+          logger.warn(
+            `[交易管理器] 初始化检测到 ${openOrders.length} 个现有挂单。由于上下文丢失，将取消这些挂单以确保干净启动。`
+          );
+          for (const order of openOrders) {
+            try {
+              // 尝试作为触发单取消（如果是止损/止盈单）或普通单取消
+              await exchange.cancelOrder(order.id, this.symbol);
+              logger.info(`[交易管理器] 已取消残留挂单: ${order.id}`);
+            } catch (cancelError: any) {
+              // 某些交易所可能需要特定参数来取消止损单
+              try {
+                if (exchange.id === "bitget") {
+                  await exchange.cancelOrder(order.id, this.symbol, {
+                    trigger: true,
+                    planType: "normal_plan",
+                  });
+                  logger.info(`[交易管理器] 已取消残留触发挂单: ${order.id}`);
+                } else {
+                  logger.error(
+                    `[交易管理器] 取消挂单 ${order.id} 失败: ${cancelError.message}`
+                  );
+                }
+              } catch (retryError: any) {
+                logger.error(
+                  `[交易管理器] 取消挂单 ${order.id} 最终失败: ${retryError.message}`
+                );
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        logger.warn(`[交易管理器] 检查初始挂单失败 (可忽略): ${e.message}`);
+      }
+
+      logger.info(
+        `[交易管理器] 初始状态检查完成: 无持仓，准备开始 SEARCHING。`
+      );
+      this.state = TradeState.SEARCHING;
+    } catch (error: any) {
+      logger.error(`[交易管理器] 初始化状态检查出错: ${error.message}`);
+      // 出错时默认进入搜索模式，或者您可以选择抛出异常停止程序
+      this.state = TradeState.SEARCHING;
     }
   }
 
@@ -247,12 +317,33 @@ export class TradeManager {
         }
 
         if (!order) {
-          order = await exchange.fetchOrder(orderId, this.symbol);
+          try {
+            order = await exchange.fetchOrder(orderId, this.symbol);
+          } catch (e: any) {
+            logger.warn(
+              `[交易管理器] ${
+                this.symbol
+              } - 获取订单详情失败 (可能已成交归档): ${e?.message || String(e)}`
+            );
+          }
         }
       }
 
       if (!order) {
-        throw new Error("无法获取挂单状态");
+        // 无法找到订单，检查是否已有持仓
+        const positionSize = await this.getPositionSize(this.symbol);
+        if (Math.abs(positionSize) > 0) {
+          logger.tradeOpen(
+            `[交易管理器] ${this.symbol} - 无法获取订单信息但检测到持仓，确认挂单已成交！`
+          );
+          this.state = TradeState.MANAGING;
+          this.hasSeenOpenPosition = true;
+          this.pendingEntryOrder = null;
+          this.pendingTradePlan = null;
+          return;
+        }
+
+        throw new Error("无法获取挂单状态且无持仓");
       }
 
       // 更新本地状态

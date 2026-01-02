@@ -423,7 +423,7 @@ You will receive data in a structured ASCII table format with three timeframes:
   - SELL: 1 tick below Signal Bar Low.
 
 ### OUTPUT FORMAT (Chain of Thought)
-You MUST return a strictly valid JSON object.If decision is "REJECT", set entryPrice, stopLoss, and takeProfit to 0, and action to "NONE", and orderType to "NONE".
+You MUST return a strictly valid JSON object.
 {
     "analysis_step_0_visual": "String. If Image provided: Describe visual structure, key levels, and patterns. If No Image: 'No image provided'.",
     "analysis_step_1_market_cycle": "String. Determine the phase (Strong Trend, Broad Channel, Trading Range, Breakout Mode). Cite Macro Context.",
