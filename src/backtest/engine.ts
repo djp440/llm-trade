@@ -3,7 +3,12 @@ import { VirtualExchange } from "./virtual-exchange";
 import { BacktestContextBuilder } from "./backtest-context-builder";
 import { LLMService } from "../llm/llm-service";
 import { ConfigLoader } from "../config/config";
-import { BacktestConfig, TradeResult, BacktestReport } from "./types";
+import {
+  BacktestConfig,
+  TradeResult,
+  BacktestReport,
+  EquityPoint,
+} from "./types";
 import { logger } from "../utils/logger";
 import { OHLC, TradeSignal } from "../types";
 import * as fs from "fs";
@@ -34,10 +39,16 @@ export class BacktestEngine {
   // Track the last pending order we created to manage it
   private lastPendingOrderId: string | null = null;
 
+  // Stats tracking
+  private equityCurve: EquityPoint[] = [];
+  private peakEquity: number = 0;
+  private maxDrawdown: number = 0;
+
   constructor(config: BacktestConfig) {
     this.config = config;
     this.exchange = new VirtualExchange(config.initialBalance);
     this.llmService = new LLMService(config.llmConfig);
+    this.peakEquity = config.initialBalance;
   }
 
   public async run(): Promise<string | undefined> {
@@ -103,6 +114,19 @@ export class BacktestEngine {
       );
 
       await this.processStep();
+
+      // Update Equity Stats
+      const currentEquity = this.exchange.getAccountState().equity;
+      this.peakEquity = Math.max(this.peakEquity, currentEquity);
+      const drawdown =
+        ((this.peakEquity - currentEquity) / this.peakEquity) * 100;
+      this.maxDrawdown = Math.max(this.maxDrawdown, drawdown);
+
+      this.equityCurve.push({
+        timestamp: currentCandle.timestamp,
+        equity: currentEquity,
+        drawdown: drawdown,
+      });
 
       this.processedCount++;
       this.currentIndex++;
@@ -429,11 +453,8 @@ export class BacktestEngine {
     const profitFactor =
       grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
 
-    // Calculate Max Drawdown (simplified based on closed trades, ideally should be equity curve)
-    // For now, let's use the final equity vs peak equity?
-    // We don't have equity curve history here easily unless we tracked it.
-    // Let's assume 0 for now or implement equity curve tracking.
-    const maxDrawdown = 0;
+    // Calculate Max Drawdown (using high-frequency data from loop)
+    const maxDrawdown = this.maxDrawdown;
 
     // Create Full Report
     const report: BacktestReport = {
@@ -450,6 +471,7 @@ export class BacktestEngine {
       maxDrawdown,
       trades: state.tradeHistory,
       candleData: this.data, // Include trading data for visualization
+      equityCurve: this.equityCurve,
     };
 
     // Save report to file

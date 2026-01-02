@@ -1,4 +1,3 @@
-
 import * as fs from "fs";
 import * as path from "path";
 import { BacktestReport } from "./types";
@@ -17,7 +16,7 @@ export class ReportGenerator {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Backtest Report - ${report.config.symbol}</title>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e1e; color: #e0e0e0; margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
@@ -28,7 +27,7 @@ export class ReportGenerator {
         .stat-value { font-size: 1.5em; font-weight: bold; margin-top: 5px; }
         .green { color: #4caf50; }
         .red { color: #f44336; }
-        #chart { width: 100%; height: 500px; background: #2d2d2d; margin-bottom: 20px; border-radius: 8px; overflow: hidden; }
+        #chart, #equity-chart { width: 100%; height: 500px; background: #2d2d2d; margin-bottom: 20px; border-radius: 8px; overflow: hidden; }
         table { width: 100%; border-collapse: collapse; background: #2d2d2d; border-radius: 8px; overflow: hidden; }
         th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #333; font-weight: 600; }
@@ -39,19 +38,25 @@ export class ReportGenerator {
     <div class="container">
         <div class="header">
             <h1>Backtest Report: ${report.config.symbol}</h1>
-            <div>${new Date(report.startTime).toLocaleString()} - ${new Date(report.endTime).toLocaleString()}</div>
+            <div>${new Date(report.startTime).toLocaleString()} - ${new Date(
+        report.endTime
+      ).toLocaleString()}</div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Final Equity</div>
-                <div class="stat-value ${report.finalEquity >= report.initialBalance ? 'green' : 'red'}">
+                <div class="stat-value ${
+                  report.finalEquity >= report.initialBalance ? "green" : "red"
+                }">
                     $${report.finalEquity.toFixed(2)}
                 </div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Total Return</div>
-                <div class="stat-value ${report.totalReturn >= 0 ? 'green' : 'red'}">
+                <div class="stat-value ${
+                  report.totalReturn >= 0 ? "green" : "red"
+                }">
                     ${report.totalReturn.toFixed(2)}%
                 </div>
             </div>
@@ -69,11 +74,14 @@ export class ReportGenerator {
             </div>
             <div class="stat-card">
                 <div class="stat-label">Max Drawdown</div>
-                <div class="stat-value red">${report.maxDrawdown.toFixed(2)}%</div>
+                <div class="stat-value red">${report.maxDrawdown.toFixed(
+                  2
+                )}%</div>
             </div>
         </div>
 
         <div id="chart"></div>
+        <div id="equity-chart"></div>
 
         <h2>Trade History</h2>
         <table>
@@ -89,17 +97,27 @@ export class ReportGenerator {
                 </tr>
             </thead>
             <tbody>
-                ${report.trades.map(t => `
+                ${report.trades
+                  .map(
+                    t => `
                 <tr>
                     <td>${t.id.substring(0, 8)}</td>
-                    <td style="color: ${t.side === 'long' ? '#4caf50' : '#f44336'}">${t.side.toUpperCase()}</td>
+                    <td style="color: ${
+                      t.side === "long" ? "#4caf50" : "#f44336"
+                    }">${t.side.toUpperCase()}</td>
                     <td>${new Date(t.entryTime).toLocaleString()}</td>
                     <td>${t.entryPrice.toFixed(2)}</td>
-                    <td>${t.exitTime ? new Date(t.exitTime).toLocaleString() : '-'}</td>
-                    <td>${t.exitPrice ? t.exitPrice.toFixed(2) : '-'}</td>
-                    <td class="${t.realizedPnL >= 0 ? 'green' : 'red'}">${t.realizedPnL.toFixed(2)}</td>
+                    <td>${
+                      t.exitTime ? new Date(t.exitTime).toLocaleString() : "-"
+                    }</td>
+                    <td>${t.exitPrice ? t.exitPrice.toFixed(2) : "-"}</td>
+                    <td class="${
+                      t.realizedPnL >= 0 ? "green" : "red"
+                    }">${t.realizedPnL.toFixed(2)}</td>
                 </tr>
-                `).join('')}
+                `
+                  )
+                  .join("")}
             </tbody>
         </table>
     </div>
@@ -130,7 +148,11 @@ export class ReportGenerator {
                 high: c.high,
                 low: c.low,
                 close: c.close
-            }));
+            }))
+            .sort((a, b) => a.time - b.time) // Ensure ascending order
+            .filter((item, index, self) => 
+                index === 0 || item.time > self[index - 1].time // Remove duplicates and ensure strict increasing
+            );
             
             candlestickSeries.setData(chartData);
 
@@ -158,6 +180,40 @@ export class ReportGenerator {
             candlestickSeries.setMarkers(markers.sort((a, b) => a.time - b.time));
             
             chart.timeScale().fitContent();
+
+            // --- Equity Chart ---
+            const equityDataRaw = ${JSON.stringify(report.equityCurve || [])};
+            if (equityDataRaw.length > 0) {
+                const equityChart = LightweightCharts.createChart(document.getElementById('equity-chart'), {
+                    layout: { background: { color: '#2d2d2d' }, textColor: '#d1d4dc' },
+                    grid: { vertLines: { color: '#404040' }, horzLines: { color: '#404040' } },
+                    timeScale: { timeVisible: true, secondsVisible: false },
+                });
+                
+                const areaSeries = equityChart.addAreaSeries({
+                    topColor: 'rgba(76, 175, 80, 0.56)',
+                    bottomColor: 'rgba(76, 175, 80, 0.04)',
+                    lineColor: 'rgba(76, 175, 80, 1)',
+                    lineWidth: 2,
+                });
+                
+                const equityData = equityDataRaw.map(e => ({
+                    time: e.timestamp / 1000,
+                    value: e.equity
+                }))
+                .sort((a, b) => a.time - b.time)
+                .filter((item, index, self) => 
+                    index === 0 || item.time > self[index - 1].time
+                );
+                
+                areaSeries.setData(equityData);
+                equityChart.timeScale().fitContent();
+
+                // Sync time scales if needed (optional, skipping for simplicity)
+            } else {
+                 document.getElementById('equity-chart').innerHTML = '<div style="padding: 20px; text-align: center; color: #aaa;">No equity data available</div>';
+            }
+
         } else {
             document.getElementById('chart').innerHTML = '<div style="padding: 20px; text-align: center; color: #aaa;">No candle data available in report</div>';
         }

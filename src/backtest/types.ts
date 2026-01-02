@@ -52,6 +52,12 @@ export interface TradeResult {
   reason: string;
 }
 
+export interface EquityPoint {
+  timestamp: number;
+  equity: number;
+  drawdown: number;
+}
+
 export interface BacktestReport {
   config: BacktestConfig;
   startTime: number;
@@ -65,4 +71,5 @@ export interface BacktestReport {
   maxDrawdown: number;
   trades: TradeResult[];
   candleData?: OHLC[];
+  equityCurve?: EquityPoint[];
 }

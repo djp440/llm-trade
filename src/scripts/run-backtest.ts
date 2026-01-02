@@ -10,18 +10,18 @@ dotenv.config();
 async function main() {
   try {
     // You can point to the new Binance CSV file here
-    const csvPath = path.join(__dirname, "..", "data", "ETHUSDT-15m-2025-09.csv");
+    const csvPath = path.join(__dirname, "../../src/data/test.csv");
     // Or fallback to default if it doesn't exist
     // const csvPath = "f:\\project\\llm-trade\\data\\backtest_data.csv";
 
     const config: BacktestConfig = {
       csvPath: csvPath,
       initialBalance: 10000,
-      symbol: "ETH/USDT",
+      symbol: "SOL/USDT",
       timeframes: {
-        trading: "15m",
-        context: "1h",
-        trend: "4h",
+        trading: "1h",
+        context: "4h",
+        trend: "1d",
       },
       enableImageAnalysis: false, // Disable image analysis
 

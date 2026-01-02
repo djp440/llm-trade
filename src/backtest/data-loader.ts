@@ -39,8 +39,14 @@ export class DataLoader {
         .map(c => c.trim());
 
       // Helper to find column index
-      const findCol = (names: string[]) =>
-        headerLine.findIndex(h => names.some(n => h === n || h.includes(n)));
+      const findCol = (names: string[]) => {
+        // 1. Try exact match first (case-insensitive already handled by headerLine mapping)
+        const exactIdx = headerLine.findIndex(h => names.some(n => h === n));
+        if (exactIdx !== -1) return exactIdx;
+
+        // 2. Try partial match (includes)
+        return headerLine.findIndex(h => names.some(n => h.includes(n)));
+      };
 
       // Dynamic mapping
       const tsIndex = findCol(["timestamp", "open_time", "time", "date"]);
