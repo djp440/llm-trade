@@ -39,6 +39,7 @@ export class LLMService {
   private visionEnabled: boolean;
   private visionCapabilityChecked: boolean;
   private visionCapabilityAvailable: boolean;
+  private accumulatedTokens: number = 0;
 
   constructor(configOverride?: any) {
     const config = ConfigLoader.getInstance();
@@ -431,8 +432,18 @@ Reason in Simplified Chinese.
     }
   }
 
+  public getTotalTokenUsage(): number {
+    return this.accumulatedTokens;
+  }
+
   private logTokenUsage(usage: any, durationMs?: number) {
     if (!usage) return;
+
+    // Accumulate total tokens
+    if (typeof usage.total_tokens === "number") {
+      this.accumulatedTokens += usage.total_tokens;
+    }
+
     const promptK = (usage.prompt_tokens / 1000).toFixed(3);
     const completionK = (usage.completion_tokens / 1000).toFixed(3);
     const totalK = (usage.total_tokens / 1000).toFixed(3);

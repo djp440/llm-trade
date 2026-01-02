@@ -166,7 +166,7 @@ export class VirtualExchange {
     this.positions.push(position);
 
     // Deduct fees (simplified)
-    const feeRate = 0.0005; // 0.05%
+    const feeRate = 0.0006; // 0.05%
     const fee = price * order.amount * feeRate;
     this.account.balance -= fee;
 

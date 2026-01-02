@@ -17,7 +17,7 @@ async function main() {
     const config: BacktestConfig = {
       csvPath: csvPath,
       initialBalance: 10000,
-      symbol: "BTC/USDT",
+      symbol: "ETH/USDT",
       timeframes: {
         trading: "15m",
         context: "1h",
@@ -29,13 +29,13 @@ async function main() {
       // Useful for quick verification or saving costs. Set BACKTEST_LIMIT in .env or here.
       limit: process.env.BACKTEST_LIMIT
         ? parseInt(process.env.BACKTEST_LIMIT)
-        : 1000, // Default to undefined (no limit, run all data)
+        : undefined, // Default to undefined (no limit, run all data)
 
       // Optional: Configure a dedicated LLM for backtesting
       // Uses environment variables starting with BACKTEST_LLM_
       llmConfig: process.env.BACKTEST_LLM_API_KEY
         ? {
-            provider: "openai",
+            provider: "openrouter",
             apiKey: process.env.BACKTEST_LLM_API_KEY,
             baseUrl:
               process.env.BACKTEST_LLM_BASE_URL ||

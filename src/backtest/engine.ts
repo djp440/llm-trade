@@ -27,6 +27,10 @@ export class BacktestEngine {
   private currentIndex: number = 0;
   private config: BacktestConfig;
 
+  // Progress tracking
+  private startTime: number = 0;
+  private processedCount: number = 0;
+
   // Track the last pending order we created to manage it
   private lastPendingOrderId: string | null = null;
 
@@ -74,11 +78,24 @@ export class BacktestEngine {
       ? Math.min(this.currentIndex + this.config.limit, this.data.length - 1)
       : this.data.length - 1;
 
-    while (this.currentIndex < endIndex) {
-      // ... (rest of loop logic is unchanged, just ensuring return type matches)
-      const currentCandle = this.data[this.currentIndex];
-      // const nextCandle = this.data[this.currentIndex + 1]; // Unused variable warning?
+    this.startTime = Date.now();
+    this.processedCount = 0;
+    const totalToProcess = endIndex - this.currentIndex;
 
+    logger.info(`Starting loop. Total candles to process: ${totalToProcess}`);
+
+    while (this.currentIndex < endIndex) {
+      const accountState = this.exchange.getAccountState();
+
+      if (accountState.equity <= 0) {
+        logger.error("Account Bankrupt (Equity <= 0). Stopping Backtest.");
+        break;
+      }
+
+      // 1. Prepare Data Buckets
+      // We need closed candles for Context (1H) and Trend (4H).
+      // But we are stepping through Trading (15m).
+      const currentCandle = this.data[this.currentIndex];
       logger.info(
         `Processing Candle [${this.currentIndex}]: ${new Date(
           currentCandle.timestamp
@@ -87,10 +104,51 @@ export class BacktestEngine {
 
       await this.processStep();
 
+      this.processedCount++;
       this.currentIndex++;
+
+      // Progress Estimation
+      this.logProgress(totalToProcess);
     }
 
     return this.generateReport();
+  }
+
+  private logProgress(totalToProcess: number) {
+    if (this.processedCount === 0) return;
+
+    const elapsedMs = Date.now() - this.startTime;
+    const avgTimePerCandle = elapsedMs / this.processedCount;
+    const remainingCandles = totalToProcess - this.processedCount;
+    const estRemainingMs = avgTimePerCandle * remainingCandles;
+
+    const totalTokens = this.llmService.getTotalTokenUsage();
+    const avgTokensPerCandle = totalTokens / this.processedCount;
+    const estTotalTokens = totalTokens + avgTokensPerCandle * remainingCandles;
+
+    const formatDuration = (ms: number) => {
+      if (ms < 1000) return `${ms}ms`;
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) return `${h}h ${m % 60}m`;
+      if (m > 0) return `${m}m ${s % 60}s`;
+      return `${s}s`;
+    };
+
+    const formatTokens = (t: number) => {
+      return (t / 1000).toFixed(1) + "k";
+    };
+
+    const pct = ((this.processedCount / totalToProcess) * 100).toFixed(1);
+
+    logger.info(
+      `[进度] ${this.processedCount}/${totalToProcess} (${pct}%) | ` +
+        `耗时: ${formatDuration(elapsedMs)} | ` +
+        `预计剩余: ${formatDuration(estRemainingMs)} | ` +
+        `Token消耗: ${formatTokens(totalTokens)} | ` +
+        `预计总Token: ${formatTokens(estTotalTokens)}`
+    );
   }
 
   private async processStep() {
@@ -236,10 +294,41 @@ export class BacktestEngine {
         // Risk Per Unit = |Entry - SL|
         // Qty = Risk Amount / Risk Per Unit
         const riskAmt = accountState.equity * 0.01;
-        const dist = Math.abs(signal.entryPrice - signal.stopLoss);
+        const rawDist = Math.abs(signal.entryPrice - signal.stopLoss);
+
+        // Safety: Ensure minimum distance to avoid massive leverage on tight stops
+        const MIN_DIST_PCT = 0.002; // 0.2% minimum distance
+        const minDist = signal.entryPrice * MIN_DIST_PCT;
+        const dist = Math.max(rawDist, minDist);
+
+        if (rawDist < minDist) {
+          logger.warn(
+            `Signal SL distance ${rawDist.toFixed(2)} is too small (< ${
+              MIN_DIST_PCT * 100
+            }% of price). Using min dist ${minDist.toFixed(2)} for sizing.`
+          );
+        }
+
         let qty = 0;
         if (dist > 0) {
           qty = riskAmt / dist;
+        }
+
+        // Safety: Cap Leverage
+        const MAX_LEVERAGE = 3;
+        const maxPosValue = accountState.equity * MAX_LEVERAGE;
+        const currentPosValue = qty * signal.entryPrice;
+
+        if (currentPosValue > maxPosValue) {
+          const newQty = maxPosValue / signal.entryPrice;
+          logger.warn(
+            `Quantity ${qty.toFixed(
+              4
+            )} exceeds max leverage ${MAX_LEVERAGE}x. Clamping to ${newQty.toFixed(
+              4
+            )}.`
+          );
+          qty = newQty;
         }
 
         // Sanity check qty
