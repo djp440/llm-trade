@@ -351,7 +351,11 @@ export class LLMService {
 ### FEES (Commission)
 - The user's commission rate is ${params.commissionRatePercent}% per side.
 - When evaluating profit and risk/reward, you MUST subtract commissions for BOTH entry and exit.
-- If net profit after commissions is <= 0, or net risk/reward is poor (< ${minNetRR}), you MUST return REJECT.
+
+
+### Take Profit
+- Targeting Rule: Do NOT use a fixed multiplier (like 1.5x) for Take Profit. Instead, look at the Chart Image and Macro Context to identify the Next Major Resistance Level (e.g., previous swing high, H4 resistance). Set Take Profit at that structural level. Rationale: We are trading breakouts. If the breakout succeeds, price should travel to the next magnet level, providing a much higher R/R (e.g., 1:3, 1:5).
+
 
 ### DATA INPUT FORMAT ("Telescope" Strategy)
 You will receive data in up to three layers:
@@ -402,12 +406,8 @@ You will receive data in up to three layers:
 ### OUTPUT FORMAT (Chain of Thought)
 You MUST return a strictly valid JSON object.
 {
-    "analysis_step_0_visual": "String. If Image provided: Describe visual structure, key levels, and patterns. If No Image: 'No image provided'.",
-    "analysis_step_1_market_cycle": "String. Determine the phase (Strong Trend, Broad Channel, Trading Range, Breakout Mode). Cite Macro Context.",
-    "analysis_step_2_setup": "String. Identify specific patterns (Wedge, MTR, H1/H2, etc).",
-    "analysis_step_3_signal_bar": "String. Evaluate the last bar using 'close_strength' and 'bar_type'. Is it a strong Signal Bar?",
     "decision": "APPROVE" | "REJECT",
-    "reason": "使用简体中文详细总结上述分析步骤。说明为何批准或拒绝。",
+    "reason": "使用简体中文总结您的分析步骤。说明为何批准或拒绝。",
     "action": "BUY" | "SELL",
     "orderType": "STOP",
     "entryPrice": number,
