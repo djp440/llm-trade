@@ -38,4 +38,15 @@ export interface LLMService {
       reason: string;
     }
   ): Promise<PendingOrderDecision>;
+
+  getStrategyConfig(): {
+    max_open_positions: number;
+    risk_per_trade: number;
+    timeframes: {
+      trading: { interval: string; include_features: boolean; limit: number };
+      context: { interval: string; include_features: boolean; limit: number };
+      trend: { interval: string; include_features: boolean; limit: number };
+    };
+    activeSymbols: string[];
+  };
 }

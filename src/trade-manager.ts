@@ -37,6 +37,15 @@ export class TradeManager {
 
   public async startLoop() {
     this.isRunning = true;
+    const strategyConfig = this.llmService.getStrategyConfig();
+
+    // Check if current symbol is supported by strategy
+    if (!strategyConfig.activeSymbols.includes(this.symbol)) {
+      logger.warn(
+        `[交易管理器] 警告: 策略配置中未包含当前交易对 ${this.symbol}，但交易管理器已启动。`
+      );
+    }
+
     logger.info(`[交易管理器] 正在启动 ${this.symbol} 的循环`);
 
     // 启动前先检查账户状态，避免重复开仓或忽略已有持仓
@@ -50,7 +59,8 @@ export class TradeManager {
           continue;
         }
 
-        const timeframe = config.strategy.timeframes.trading.interval;
+        const timeframe =
+          this.llmService.getStrategyConfig().timeframes.trading.interval;
         const msPerCandle = this.marketData.parseTimeframeToMs(timeframe);
         const closeBufferMs = 2000;
 

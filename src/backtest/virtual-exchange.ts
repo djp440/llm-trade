@@ -81,8 +81,12 @@ export class VirtualExchange {
     for (const order of openOrders) {
       if (order.type === "stop" || order.type === "stop_market") {
         this.checkStopOrder(order, candle);
+      } else if (order.type === "market") {
+        // Market orders fill at Open of the candle (simulation of next candle execution)
+        this.executeOrder(order, candle.open, candle);
+      } else if (order.type === "limit") {
+        this.checkLimitOrder(order, candle);
       }
-      // Implement limit orders if needed, but strategy uses STOP mostly
     }
 
     // 2. Process Positions (PnL, TP/SL)
@@ -93,6 +97,33 @@ export class VirtualExchange {
 
     // 3. Update Equity
     this.calculateEquity(candle);
+  }
+
+  private checkLimitOrder(order: VirtualOrder, candle: OHLC) {
+    if (!order.price) return;
+
+    let triggered = false;
+    let fillPrice = order.price;
+
+    if (order.side === "buy") {
+      // Buy Limit: Triggered if Low <= Price
+      if (candle.low <= order.price) {
+        triggered = true;
+        // If Open < Price, we likely filled at Open (better price)
+        fillPrice = Math.min(candle.open, order.price);
+      }
+    } else {
+      // Sell Limit: Triggered if High >= Price
+      if (candle.high >= order.price) {
+        triggered = true;
+        // If Open > Price, we likely filled at Open (better price)
+        fillPrice = Math.max(candle.open, order.price);
+      }
+    }
+
+    if (triggered) {
+      this.executeOrder(order, fillPrice, candle);
+    }
   }
 
   private checkStopOrder(order: VirtualOrder, candle: OHLC) {

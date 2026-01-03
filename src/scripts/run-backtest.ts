@@ -2,6 +2,7 @@ import { BacktestEngine } from "../backtest/engine";
 import { BacktestConfig } from "../backtest/types";
 import { logger } from "../utils/logger";
 import { ReportGenerator } from "../backtest/report-generator";
+import { AlBrooksLLMStrategy } from "../llm/strategies/al-brooks-strategy";
 import * as path from "path";
 import * as dotenv from "dotenv";
 
@@ -14,14 +15,17 @@ async function main() {
     // Or fallback to default if it doesn't exist
     // const csvPath = "f:\\project\\llm-trade\\data\\backtest_data.csv";
 
+    // Use default timeframes from the strategy, or override here
+    const defaultStrategyConfig = new AlBrooksLLMStrategy().getStrategyConfig();
+
     const config: BacktestConfig = {
       csvPath: csvPath,
       initialBalance: 10000,
       symbol: "SUI/USDT",
       timeframes: {
-        trading: "15m",
-        context: "1h",
-        trend: "4h",
+        trading: defaultStrategyConfig.timeframes.trading.interval, // e.g. "5m"
+        context: defaultStrategyConfig.timeframes.context.interval, // e.g. "1h"
+        trend: defaultStrategyConfig.timeframes.trend.interval, // e.g. "4h"
       },
       enableImageAnalysis: false, // Disable image analysis
 
@@ -46,7 +50,7 @@ async function main() {
             logInteractions: true,
           }
         : undefined,
-        
+
       // Optional: Select strategy type (default: "al-brooks")
       strategyType: "al-brooks",
     };

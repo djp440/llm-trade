@@ -21,6 +21,29 @@ import {
 } from "../prompts/identity-prompts";
 import { LLMService } from "../llm-service";
 
+const AL_BROOKS_CONFIG = {
+  max_open_positions: 3,
+  risk_per_trade: 1.0,
+  timeframes: {
+    trading: {
+      include_features: true,
+      interval: "5m",
+      limit: 30,
+    },
+    context: {
+      include_features: false,
+      interval: "1h",
+      limit: 15,
+    },
+    trend: {
+      include_features: false,
+      interval: "4h",
+      limit: 10,
+    },
+  },
+  activeSymbols: ["ETH/USDT:USDT"],
+};
+
 export class AlBrooksLLMStrategy implements LLMService {
   private openai: OpenAI;
   private model: string;
@@ -41,10 +64,19 @@ export class AlBrooksLLMStrategy implements LLMService {
   private visionCapabilityChecked: boolean;
   private visionCapabilityAvailable: boolean;
   private accumulatedTokens: number = 0;
+  private strategyConfig = AL_BROOKS_CONFIG;
 
   constructor(configOverride?: any) {
     const config = ConfigLoader.getInstance();
     const llmConfig = configOverride || config.llm;
+
+    if (configOverride?.strategy) {
+      // Deep merge for timeframes is better, but simple merge for now
+      this.strategyConfig = {
+        ...this.strategyConfig,
+        ...configOverride.strategy,
+      };
+    }
 
     this.openai = new OpenAI({
       baseURL: llmConfig.baseUrl,
@@ -61,6 +93,10 @@ export class AlBrooksLLMStrategy implements LLMService {
     this.visionEnabled = Boolean(llmConfig.visionEnabled);
     this.visionCapabilityChecked = false;
     this.visionCapabilityAvailable = false;
+  }
+
+  public getStrategyConfig() {
+    return AL_BROOKS_CONFIG;
   }
 
   private async ensureVisionCapabilityChecked(): Promise<void> {
@@ -746,9 +782,9 @@ Provide a concise summary of the visual structure.
 
     // 3. Construct Prompt
     const timeframes = options?.timeframes || {
-      trading: config.strategy.timeframes.trading.interval,
-      context: config.strategy.timeframes.context.interval,
-      trend: config.strategy.timeframes.trend.interval,
+      trading: this.strategyConfig.timeframes.trading.interval,
+      context: this.strategyConfig.timeframes.context.interval,
+      trend: this.strategyConfig.timeframes.trend.interval,
     };
 
     const timeframe = timeframes.trading;

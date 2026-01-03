@@ -374,12 +374,14 @@ export class BacktestEngine {
           return;
         }
 
+        const orderType = signal.orderType === "MARKET" ? "market" : "stop";
+
         const order = this.exchange.createOrder({
           symbol: this.config.symbol,
-          type: "stop", // LLM usually returns STOP for price action
+          type: orderType,
           side: signal.action === "BUY" ? "buy" : "sell",
           amount: qty,
-          stopPrice: signal.entryPrice, // For stop order, price is trigger
+          stopPrice: orderType === "stop" ? signal.entryPrice : undefined,
           price: signal.entryPrice,
           params: {
             stopLoss: signal.stopLoss,
