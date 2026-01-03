@@ -19,12 +19,24 @@ export interface TimeframesConfig {
   trend: TimeframeSettings;
 }
 
+export interface EmaStrategyParams {
+  x: number;
+  y: number;
+  n: number;
+  lvl: number;
+  q_percent: number;
+}
+
 export interface StrategyConfig {
+  type: string; // "al-brooks" | "ema-crossover"
   // New MTF support
   timeframes: TimeframesConfig;
 
   risk_per_trade: number;
   max_open_positions: number;
+
+  // Specific strategy params
+  ema?: EmaStrategyParams;
 }
 
 export interface SymbolsConfig {
@@ -259,6 +271,7 @@ export class ConfigLoader {
 
       // TOML Strategy Config
       strategy: {
+        type: tomlConfig.strategy?.type || "al-brooks",
         timeframes: {
           trading: {
             interval:
@@ -290,6 +303,7 @@ export class ConfigLoader {
         },
         risk_per_trade: riskPerTradePercent / 100,
         max_open_positions: tomlConfig.strategy?.max_open_positions || 3,
+        ema: tomlConfig.strategy?.ema,
       },
       symbols: {
         active: tomlConfig.symbols?.active || [],

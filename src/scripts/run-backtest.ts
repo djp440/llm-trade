@@ -2,7 +2,7 @@ import { BacktestEngine } from "../backtest/engine";
 import { BacktestConfig } from "../backtest/types";
 import { logger } from "../utils/logger";
 import { ReportGenerator } from "../backtest/report-generator";
-import { AlBrooksLLMStrategy } from "../llm/strategies/al-brooks-strategy";
+import { ConfigLoader } from "../config/config"; // Import ConfigLoader
 import * as path from "path";
 import * as dotenv from "dotenv";
 
@@ -10,33 +10,34 @@ dotenv.config();
 
 async function main() {
   try {
+    // Load config from config.toml
+    const globalConfig = ConfigLoader.getInstance();
+
     // You can point to the new Binance CSV file here
     const csvPath = path.join(__dirname, "../../src/data/test.csv");
     // Or fallback to default if it doesn't exist
     // const csvPath = "f:\\project\\llm-trade\\data\\backtest_data.csv";
 
-    // Use default timeframes from the strategy, or override here
-    const defaultStrategyConfig = new AlBrooksLLMStrategy().getStrategyConfig();
+    // Use timeframes from config.toml
+    const timeframes = globalConfig.strategy.timeframes;
 
     const config: BacktestConfig = {
       csvPath: csvPath,
       initialBalance: 10000,
-      symbol: "SUI/USDT",
+      symbol: "SUI/USDT", // Keep SUI for now, or use globalConfig.symbols.active[0]
       timeframes: {
-        trading: defaultStrategyConfig.timeframes.trading.interval, // e.g. "5m"
-        context: defaultStrategyConfig.timeframes.context.interval, // e.g. "1h"
-        trend: defaultStrategyConfig.timeframes.trend.interval, // e.g. "4h"
+        trading: timeframes.trading.interval,
+        context: timeframes.context.interval,
+        trend: timeframes.trend.interval,
       },
-      enableImageAnalysis: false, // Disable image analysis
+      enableImageAnalysis: globalConfig.llm.visionEnabled,
 
       // Optional: Limit number of candles for testing
-      // Useful for quick verification or saving costs. Set BACKTEST_LIMIT in .env or here.
       limit: process.env.BACKTEST_LIMIT
         ? parseInt(process.env.BACKTEST_LIMIT)
-        : 900, // Default to undefined (no limit, run all data)
+        : 900,
 
       // Optional: Configure a dedicated LLM for backtesting
-      // Uses environment variables starting with BACKTEST_LLM_
       llmConfig: process.env.BACKTEST_LLM_API_KEY
         ? {
             provider: "openrouter",
@@ -49,10 +50,17 @@ async function main() {
             identityRole: "trader",
             logInteractions: true,
           }
-        : undefined,
+        : undefined, // If undefined, engine might use global config or defaults.
+      // Ideally engine uses passed llmConfig OR falls back to global if we change engine.ts.
+      // But engine.ts currently merges llmConfig.
+      // If we want to use global LLM config when backtest env is not set:
+      // llmConfig: process.env.BACKTEST_LLM_API_KEY ? ... : globalConfig.llm
 
-      // Optional: Select strategy type (default: "al-brooks")
-      strategyType: "al-brooks",
+      // Select strategy type from config
+      strategyType: globalConfig.strategy.type,
+
+      // Pass the full strategy config (including EMA params)
+      strategyConfig: globalConfig.strategy,
     };
 
     const engine = new BacktestEngine(config);

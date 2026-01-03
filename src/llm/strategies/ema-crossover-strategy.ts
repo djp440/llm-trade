@@ -55,13 +55,25 @@ export class EmaCrossoverStrategy implements LLMService {
 
   constructor(configOverride?: any) {
     const config = ConfigLoader.getInstance();
-    const llmConfig = configOverride || config.llm;
+    // Always use global LLM config, unless configOverride IS the llm config (legacy support)
+    // If configOverride has 'strategy', we assume it's the full config object or a wrapper, so we use global llm.
+    const llmConfig = configOverride?.strategy
+      ? config.llm
+      : configOverride || config.llm;
 
     if (configOverride?.strategy) {
       this.strategyConfig = {
         ...this.strategyConfig,
         ...configOverride.strategy,
       };
+
+      // Merge EMA specific params if present in config
+      if (configOverride.strategy.ema) {
+        this.strategyConfig.params = {
+          ...this.strategyConfig.params,
+          ...configOverride.strategy.ema,
+        };
+      }
     }
 
     this.openai = new OpenAI({
@@ -192,9 +204,11 @@ export class EmaCrossoverStrategy implements LLMService {
     const prevEma = tradingEma[lastIdx - 1];
 
     if (currEma === null || prevEma === null) {
+      const reason = `Not enough data for EMA(${n}) calculation. Need more history.`;
+      // logger.debug(reason); // Optional: log at debug level
       return {
         decision: "HOLD",
-        reason: `Not enough data for EMA(${n}) calculation`,
+        reason,
       };
     }
 
@@ -213,7 +227,7 @@ export class EmaCrossoverStrategy implements LLMService {
     }
 
     logger.info(
-      `[EMA Strategy] Crossover detected! Bullish: ${isBullishCross}, Bearish: ${isBearishCross}`
+      `[EMA Strategy] Crossover detected! Bullish: ${isBullishCross}, Bearish: ${isBearishCross} at ${tradingData[lastIdx].timestamp}`
     );
 
     // 3. Prepare Data for LLM

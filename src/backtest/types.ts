@@ -38,6 +38,7 @@ export interface BacktestConfig {
   limit?: number;
   llmConfig?: AppConfig["llm"];
   strategyType?: string;
+  strategyConfig?: any; // To pass full strategy config (params, ema, etc.)
 }
 
 export interface TradeResult {

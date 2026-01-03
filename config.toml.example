@@ -12,6 +12,7 @@ max_tokens = 4000 # 单次回复最大 token 数，留空则使用服务端默�
 reasoning_effort = "medium" # ignore|none|minimal|low|medium|high；ignore 表示不随请求发送该字段
 identity_role = "daytrader"
 [strategy]
+type = "al-brooks" # al-brooks | ema-crossover
 max_open_positions = 3 # 最大同时持仓币种数
 risk_per_trade = 1.0 # 单笔风险（百分比制）。例如 1 表示 1%
 
@@ -30,6 +31,14 @@ include_features = false
 interval = "4h"
 limit = 10
 include_features = false
+
+# EMA Crossover Strategy Parameters (Optional if using ema-crossover)
+[strategy.ema]
+x = 18
+y = 14
+n = 180
+lvl = 3.0
+q_percent = 300
 
 
 [symbols]

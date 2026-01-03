@@ -68,7 +68,10 @@ export class AlBrooksLLMStrategy implements LLMService {
 
   constructor(configOverride?: any) {
     const config = ConfigLoader.getInstance();
-    const llmConfig = configOverride || config.llm;
+    // Always use global LLM config, unless configOverride IS the llm config (legacy support)
+    const llmConfig = configOverride?.strategy
+      ? config.llm
+      : configOverride || config.llm;
 
     if (configOverride?.strategy) {
       // Deep merge for timeframes is better, but simple merge for now

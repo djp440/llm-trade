@@ -49,10 +49,11 @@ export class BacktestEngine {
     this.config = config;
     this.exchange = new VirtualExchange(config.initialBalance);
 
-    // Merge LLM config with strategy type
+    // Merge LLM config with strategy type and strategy config
     const factoryConfig = {
       ...config.llmConfig,
       strategyType: config.strategyType,
+      strategy: config.strategyConfig,
     };
     this.llmService = createLLMService(factoryConfig);
 
@@ -331,7 +332,15 @@ export class BacktestEngine {
       );
 
       if (signal.decision === "HOLD" || signal.action === "NO_ACTION") {
-        // Do nothing
+        // Log reason if it's not the common "No crossover" or "Insufficient data" (to avoid spam),
+        // OR if it IS insufficient data, log it periodically or once?
+        // Let's log "Insufficient data" as debug/info so user sees it if they check.
+        if (
+          signal.reason &&
+          !signal.reason.includes("No EMA crossover detected")
+        ) {
+          logger.info(`Strategy HOLD: ${signal.reason}`);
+        }
         return;
       }
 

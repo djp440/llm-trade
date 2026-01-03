@@ -23,7 +23,12 @@ async function main() {
 
     // 2. 初始化交易所管理器
     const exchangeManager = new ExchangeManager();
-    const llmService = createLLMService();
+
+    // Pass config.strategy to allow factory to pick up strategy type and params
+    const llmService = createLLMService({
+      strategyType: config.strategy.type,
+      strategy: config.strategy,
+    });
 
     // 3. 测试连接
     await exchangeManager.testConnection();
