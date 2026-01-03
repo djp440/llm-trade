@@ -37,6 +37,7 @@ export interface BacktestConfig {
   enableImageAnalysis?: boolean;
   limit?: number;
   llmConfig?: AppConfig["llm"];
+  strategyType?: string;
 }
 
 export interface TradeResult {

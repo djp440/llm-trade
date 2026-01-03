@@ -17,11 +17,11 @@ async function main() {
     const config: BacktestConfig = {
       csvPath: csvPath,
       initialBalance: 10000,
-      symbol: "SOL/USDT",
+      symbol: "SUI/USDT",
       timeframes: {
-        trading: "4h",
-        context: "1d",
-        trend: "1w",
+        trading: "15m",
+        context: "1h",
+        trend: "4h",
       },
       enableImageAnalysis: false, // Disable image analysis
 
@@ -29,7 +29,7 @@ async function main() {
       // Useful for quick verification or saving costs. Set BACKTEST_LIMIT in .env or here.
       limit: process.env.BACKTEST_LIMIT
         ? parseInt(process.env.BACKTEST_LIMIT)
-        : 1000, // Default to undefined (no limit, run all data)
+        : 900, // Default to undefined (no limit, run all data)
 
       // Optional: Configure a dedicated LLM for backtesting
       // Uses environment variables starting with BACKTEST_LLM_
@@ -46,6 +46,9 @@ async function main() {
             logInteractions: true,
           }
         : undefined,
+        
+      // Optional: Select strategy type (default: "al-brooks")
+      strategyType: "al-brooks",
     };
 
     const engine = new BacktestEngine(config);

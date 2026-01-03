@@ -137,7 +137,8 @@ src/
 - **Minimize Impact**: 我们不会修改 `TradeManager.ts`。
 - **Reuse**:
 
-  - `src/llm/llm-service.ts`: 直接实例化并使用。
+  - `src/llm/llm-service.ts`: 重构为接口，通过 `LLMService` 接口与不同策略交互。
+  - `src/llm/llm-factory.ts`: 使用工厂方法创建策略实例，支持在回测中切换策略。
   - `src/llm/context-builder.ts`: 需要确保它接受纯数据数组，而不是依赖实时 `MarketDataManager`。如果它目前依赖 `MarketDataManager`，我们需要重构它以接受 `OHLC[]` 作为输入，或者创建一个适配器。
 
   _检查点_: 检查 `context-builder.ts`。

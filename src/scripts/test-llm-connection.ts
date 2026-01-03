@@ -1,5 +1,5 @@
 
-import { LLMService } from "../llm/llm-service";
+import { createLLMService } from "../llm/llm-factory";
 import { logger } from "../utils/logger";
 
 async function testConnection() {
@@ -17,7 +17,7 @@ async function testConnection() {
       volume: 1000
     }));
 
-    const service = new LLMService();
+    const service = createLLMService();
     
     // We expect this to fail or succeed, but at least connect
     // Since the prompt is complex, we just want to see if we get a response (even an error from the model)

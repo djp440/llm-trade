@@ -2,6 +2,7 @@ import { DataLoader } from "./data-loader";
 import { VirtualExchange } from "./virtual-exchange";
 import { BacktestContextBuilder } from "./backtest-context-builder";
 import { LLMService } from "../llm/llm-service";
+import { createLLMService } from "../llm/llm-factory";
 import { ConfigLoader } from "../config/config";
 import {
   BacktestConfig,
@@ -47,7 +48,14 @@ export class BacktestEngine {
   constructor(config: BacktestConfig) {
     this.config = config;
     this.exchange = new VirtualExchange(config.initialBalance);
-    this.llmService = new LLMService(config.llmConfig);
+
+    // Merge LLM config with strategy type
+    const factoryConfig = {
+      ...config.llmConfig,
+      strategyType: config.strategyType,
+    };
+    this.llmService = createLLMService(factoryConfig);
+
     this.peakEquity = config.initialBalance;
   }
 

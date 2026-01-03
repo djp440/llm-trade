@@ -8,18 +8,20 @@
 
 ## 2. 核心特性 (Key Features)
 
-*   **虚拟沙盒 (Virtual Sandbox)**: 包含独立的虚拟交易所和账户系统，支持限价单、止损单的完全撮合模拟。
-*   **真实 LLM 交互**: 在回测的每一个时间步，都会真实调用 LLM API 进行分析，而非简单的指标回测。
-*   **多时间周期重采样 (Multi-Timeframe Resampling)**: 自动将基础数据（如 15分钟）重采样为更大周期（如 1小时、4小时），为 LLM 提供丰富的多周期上下文。
-*   **悲观撮合机制 (Pessimistic Matching)**: 在同一根 K 线内同时触发止盈和止损时，优先触发止损，以提供更保守、更真实的测试结果。
-*   **可视化 HTML 报告**: 自动生成包含交互式 K 线图、资金曲线和详细交易记录的网页报告。
-*   **低成本兼容性**: 针对 Gemma-3 等更便宜的模型进行了优化，并提供关闭图像分析的选项以节省 Token。
+- **虚拟沙盒 (Virtual Sandbox)**: 包含独立的虚拟交易所和账户系统，支持限价单、止损单的完全撮合模拟。
+- **真实 LLM 交互**: 在回测的每一个时间步，都会真实调用 LLM API 进行分析，而非简单的指标回测。
+- **多时间周期重采样 (Multi-Timeframe Resampling)**: 自动将基础数据（如 15 分钟）重采样为更大周期（如 1 小时、4 小时），为 LLM 提供丰富的多周期上下文。
+- **悲观撮合机制 (Pessimistic Matching)**: 在同一根 K 线内同时触发止盈和止损时，优先触发止损，以提供更保守、更真实的测试结果。
+- **可视化 HTML 报告**: 自动生成包含交互式 K 线图、资金曲线和详细交易记录的网页报告。
+- **多策略支持**: 支持通过配置切换不同的交易策略（默认基于 Al Brooks 价格行为学）。
+- **低成本兼容性**: 针对 Gemma-3 等更便宜的模型进行了优化，并提供关闭图像分析的选项以节省 Token。
 
 ## 3. 快速开始 (Quick Start)
 
 ### 3.1 准备工作
 
 确保您已准备好以下环境：
+
 1.  **Node.js**: v16 或更高版本。
 2.  **LLM API Key**: 确保 `.env` 文件中已配置有效的 API Key（推荐使用 Google Gemini 或兼容模型）。
 3.  **历史数据**: 准备 CSV 格式的 K 线数据（如 Binance 导出的数据）。
@@ -27,22 +29,25 @@
 ### 3.2 运行回测
 
 1.  **配置脚本**: 打开 `src/scripts/run-backtest.ts`，修改配置对象：
+
     ```typescript
     const config: BacktestConfig = {
       csvPath: "path/to/your/data.csv", // CSV 数据路径
-      initialBalance: 10000,            // 初始资金
-      symbol: "BTC/USDT",               // 交易对
+      initialBalance: 10000, // 初始资金
+      symbol: "BTC/USDT", // 交易对
       timeframes: {
         trading: "15m", // 交易周期（也是 CSV 的基础周期）
-        context: "1h",  // 上下文周期（自动生成）
-        trend: "4h",    // 趋势周期（自动生成）
+        context: "1h", // 上下文周期（自动生成）
+        trend: "4h", // 趋势周期（自动生成）
       },
       enableImageAnalysis: false, // 是否启用图像分析（建议关闭以提高速度）
+      strategyType: "al-brooks", // 策略类型：支持 "al-brooks" 等
       // limit: 100 // 可选：仅测试前 100 根 K 线
     };
     ```
 
 2.  **执行命令**:
+
     ```bash
     npx ts-node src/scripts/run-backtest.ts
     ```
@@ -55,26 +60,30 @@
 HTML 报告包含以下主要部分：
 
 ### 4.1 概览面板 (Overview)
-*   **Total Return**: 总收益率。
-*   **Win Rate**: 胜率（盈利交易次数 / 总交易次数）。
-*   **Profit Factor**: 盈亏比（总盈利 / 总亏损）。
-*   **Max Drawdown**: 最大回撤（资金曲线从峰值下降的最大幅度）。
+
+- **Total Return**: 总收益率。
+- **Win Rate**: 胜率（盈利交易次数 / 总交易次数）。
+- **Profit Factor**: 盈亏比（总盈利 / 总亏损）。
+- **Max Drawdown**: 最大回撤（资金曲线从峰值下降的最大幅度）。
 
 ### 4.2 交互式图表 (Chart)
-*   **K 线图**: 显示交易周期的价格走势。
-*   **标记**:
-    *   `↑` (绿色箭头): 开多 (Long Entry)
-    *   `↓` (红色箭头): 开空 (Short Entry)
-    *   `x` (红色/绿色叉号): 平仓 (Close Position)
-*   **操作**: 支持缩放、平移，查看任意时间点的细节。
+
+- **K 线图**: 显示交易周期的价格走势。
+- **标记**:
+  - `↑` (绿色箭头): 开多 (Long Entry)
+  - `↓` (红色箭头): 开空 (Short Entry)
+  - `x` (红色/绿色叉号): 平仓 (Close Position)
+- **操作**: 支持缩放、平移，查看任意时间点的细节。
 
 ### 4.3 交易列表 (Trade List)
+
 详细列出每一笔交易的：
-*   入场时间与价格
-*   出场时间与价格
-*   方向 (Long/Short)
-*   盈亏额 (PnL) 与百分比 (ROI)
-*   退出原因 (TP/SL/Signal)
+
+- 入场时间与价格
+- 出场时间与价格
+- 方向 (Long/Short)
+- 盈亏额 (PnL) 与百分比 (ROI)
+- 退出原因 (TP/SL/Signal)
 
 ## 5. 常见问题 (FAQ)
 

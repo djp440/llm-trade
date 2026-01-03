@@ -1,6 +1,6 @@
 import { config } from "./config/config";
 import { ExchangeManager } from "./market/exchange-manager";
-import { LLMService } from "./llm/llm-service";
+import { createLLMService } from "./llm/llm-factory";
 import { logger } from "./utils/logger";
 import { TradeManager } from "./trade-manager";
 
@@ -23,7 +23,7 @@ async function main() {
 
     // 2. 初始化交易所管理器
     const exchangeManager = new ExchangeManager();
-    const llmService = new LLMService();
+    const llmService = createLLMService();
 
     // 3. 测试连接
     await exchangeManager.testConnection();

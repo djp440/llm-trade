@@ -4,7 +4,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { config } from "../config/config";
 import { ExchangeManager } from "../market/exchange-manager";
 import { MarketDataManager } from "../market/manager";
-import { LLMService } from "../llm/llm-service";
+import { createLLMService } from "../llm/llm-factory";
 import { OHLC } from "../types";
 import { logger } from "../utils/logger";
 
@@ -419,9 +419,9 @@ async function main() {
       ).toISOString()} (缓冲 ${Math.round(bufferMs / 1000)} 秒)`
     );
     if (!opts.offline) {
-        await sleep(waitTime);
+      await sleep(waitTime);
     } else {
-        logger.info("[测试脚本] 离线模式，跳过等待。");
+      logger.info("[测试脚本] 离线模式，跳过等待。");
     }
 
     const refNowMs = opts.offline
@@ -462,7 +462,7 @@ async function main() {
 
     if (!opts.noVision) {
       try {
-        const llmService = new LLMService();
+        const llmService = createLLMService();
         const accountEquity = 1000;
         const riskPerTrade = config.strategy.risk_per_trade;
         logger.info("[测试脚本] 正在调用 LLM 主分析(可选含图像)...");
