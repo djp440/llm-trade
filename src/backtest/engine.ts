@@ -246,23 +246,24 @@ export class BacktestEngine {
     }
 
     // Step 3: Action based on State
-    if (this.state === BacktestState.WAITING_SIGNAL) {
-      await this.handleWaitingSignal();
-    } else if (this.state === BacktestState.PENDING_ORDER) {
+    if (this.state === BacktestState.PENDING_ORDER) {
       await this.handlePendingOrder();
-    } else if (this.state === BacktestState.IN_POSITION) {
-      // Do nothing, just wait for exit.
-      // Or maybe implement trailing stop logic here if needed.
+    } else {
+      // For WAITING_SIGNAL and IN_POSITION, we run analysis
+      // This supports strategies that actively manage positions (Close, Reverse)
+      await this.handleMarketAnalysis();
     }
   }
 
-  private async handleWaitingSignal() {
+  private async handleMarketAnalysis() {
     // Prepare Data
     const end = this.currentIndex + 1;
     const currentCandle = this.data[this.currentIndex];
 
     // Trading Data (native)
-    const tradingData = this.data.slice(Math.max(0, end - 50), end);
+    // Need enough history for indicators (e.g. EMA 200)
+    // Safely increase lookback to 300 or more
+    const tradingData = this.data.slice(Math.max(0, end - 300), end);
 
     // Context Data (Resampled)
     const contextMs = Resampler.parseInterval(this.config.timeframes.context);
@@ -293,15 +294,25 @@ export class BacktestEngine {
     const contextData = getClosedCandles(
       this.contextDataFull,
       contextBucketStart,
-      50
+      200 // Increased lookback for context indicators
     );
     const trendData = getClosedCandles(
       this.trendDataFull,
       trendBucketStart,
-      50
+      200 // Increased lookback for trend indicators
     );
 
     const accountState = this.exchange.getAccountState();
+
+    // Determine Current Position Status for Strategy
+    let currentPositionStatus = "NO_POSITION";
+    const pos = accountState.positions.find(
+      p => p.symbol === this.config.symbol
+    );
+    if (pos && pos.quantity > 0) {
+      currentPositionStatus =
+        pos.side === "long" ? "LONG_POSITION" : "SHORT_POSITION";
+    }
 
     // Call LLM
     try {
@@ -311,75 +322,97 @@ export class BacktestEngine {
         contextData,
         trendData,
         accountState.equity,
-        0.01, // 1% risk
+        0.01, // 1% risk (default, strategy might override via q parameter)
         {
           enableImageAnalysis: this.config.enableImageAnalysis,
           timeframes: this.config.timeframes,
+          currentPosition: currentPositionStatus,
         }
       );
 
-      if (signal.decision === "APPROVE") {
+      if (signal.decision === "HOLD" || signal.action === "NO_ACTION") {
+        // Do nothing
+        return;
+      }
+
+      if (signal.decision === "APPROVE" || signal.action) {
         logger.info(
-          `LLM Approved Trade: ${signal.action} @ ${signal.entryPrice}`
+          `LLM Signal: ${signal.action} @ ${signal.entryPrice || "Market"}`
         );
 
-        // Place Order
-        // Calculate Quantity based on Risk
-        // Risk Amount = Equity * 0.01
-        // Risk Per Unit = |Entry - SL|
-        // Qty = Risk Amount / Risk Per Unit
-        const riskAmt = accountState.equity * 0.01;
-        const rawDist = Math.abs(signal.entryPrice - signal.stopLoss);
+        // Handle Close/Reverse Logic
+        if (signal.action?.startsWith("CLOSE_")) {
+          await this.handleCloseSignal(signal, accountState);
 
-        // Safety: Ensure minimum distance to avoid massive leverage on tight stops
-        const MIN_DIST_PCT = 0.002; // 0.2% minimum distance
-        const minDist = signal.entryPrice * MIN_DIST_PCT;
-        const dist = Math.max(rawDist, minDist);
-
-        if (rawDist < minDist) {
-          logger.warn(
-            `Signal SL distance ${rawDist.toFixed(2)} is too small (< ${
-              MIN_DIST_PCT * 100
-            }% of price). Using min dist ${minDist.toFixed(2)} for sizing.`
-          );
+          // If it's a "AND_..." action, we need to open a new position
+          if (signal.action.includes("_AND_")) {
+            // Proceed to open logic below
+          } else {
+            // Just Close
+            return;
+          }
         }
 
+        // Place Entry Order (Buy/Sell)
+        // Calculate Quantity based on Risk or Strategy params
         let qty = 0;
-        if (dist > 0) {
-          qty = riskAmt / dist;
+
+        // Priority: Signal Quantity (Percent) > Risk Calculation
+        if (signal.quantity && signal.quantity > 0) {
+          // quantity is percentage (0-100) or value?
+          // TradeExecutor update assumed 0-100 representing % of equity.
+          // Let's assume strategy returns % of equity to use.
+          const val = accountState.equity * (signal.quantity / 100);
+          const price = signal.entryPrice || currentCandle.close;
+          qty = val / price;
+        } else {
+          // Default Risk-based sizing
+          const riskAmt = accountState.equity * 0.01;
+          const sl =
+            signal.stopLoss ||
+            (signal.action === "BUY"
+              ? currentCandle.close * 0.99
+              : currentCandle.close * 1.01);
+          // If SL is 0/undefined, fallback to 1% distance
+
+          const entryPrice = signal.entryPrice || currentCandle.close;
+          const rawDist = Math.abs(entryPrice - sl);
+
+          // Safety: Ensure minimum distance
+          const MIN_DIST_PCT = 0.002;
+          const minDist = entryPrice * MIN_DIST_PCT;
+          const dist = Math.max(rawDist, minDist);
+
+          if (dist > 0) qty = riskAmt / dist;
         }
 
         // Safety: Cap Leverage
-        const MAX_LEVERAGE = 3;
+        const MAX_LEVERAGE = 3; // Should come from config
         const maxPosValue = accountState.equity * MAX_LEVERAGE;
-        const currentPosValue = qty * signal.entryPrice;
+        const entryPrice = signal.entryPrice || currentCandle.close;
+        const currentPosValue = qty * entryPrice;
 
         if (currentPosValue > maxPosValue) {
-          const newQty = maxPosValue / signal.entryPrice;
-          logger.warn(
-            `Quantity ${qty.toFixed(
-              4
-            )} exceeds max leverage ${MAX_LEVERAGE}x. Clamping to ${newQty.toFixed(
-              4
-            )}.`
-          );
+          const newQty = maxPosValue / entryPrice;
           qty = newQty;
         }
 
-        // Sanity check qty
         if (qty <= 0) {
-          logger.warn(
-            `Calculated quantity is 0 or negative, skipping. Qty: ${qty}, Equity: ${accountState.equity}, RiskAmt: ${riskAmt}, Entry: ${signal.entryPrice}, SL: ${signal.stopLoss}, Dist: ${dist}`
-          );
+          logger.warn(`Calculated quantity <= 0. Skipping.`);
           return;
         }
 
         const orderType = signal.orderType === "MARKET" ? "market" : "stop";
+        const side =
+          signal.action === "BUY" || signal.action === "CLOSE_SHORT_AND_BUY"
+            ? "buy"
+            : "sell";
 
+        // Create Entry Order
         const order = this.exchange.createOrder({
           symbol: this.config.symbol,
           type: orderType,
-          side: signal.action === "BUY" ? "buy" : "sell",
+          side: side,
           amount: qty,
           stopPrice: orderType === "stop" ? signal.entryPrice : undefined,
           price: signal.entryPrice,
@@ -396,6 +429,46 @@ export class BacktestEngine {
       }
     } catch (e: any) {
       logger.error(`LLM Analysis Failed: ${e.message}`);
+    }
+  }
+
+  private async handleCloseSignal(signal: TradeSignal, accountState: any) {
+    const pos = accountState.positions.find(
+      (p: any) => p.symbol === this.config.symbol
+    );
+    if (!pos || pos.amount === 0) return;
+
+    const isLong = pos.side === "buy";
+    const shouldCloseLong = signal.action?.includes("CLOSE_LONG");
+    const shouldCloseShort = signal.action?.includes("CLOSE_SHORT");
+
+    if ((isLong && shouldCloseLong) || (!isLong && shouldCloseShort)) {
+      // Create Close Order (Market)
+      this.exchange.createOrder({
+        symbol: this.config.symbol,
+        type: "market",
+        side: isLong ? "sell" : "buy",
+        amount: pos.amount,
+        params: { reduceOnly: true },
+      });
+      logger.info(`Executed Close Signal: ${signal.action}`);
+      // Update state immediately? Exchange processCandle will handle execution next tick?
+      // No, createOrder executes immediately in VirtualExchange if market?
+      // VirtualExchange implementation might queue it.
+      // If queued, we need to wait for fill.
+      // But here we might be creating Entry immediately after.
+      // Backtester simplification: Assume Market orders fill immediately at Close price of current candle?
+      // VirtualExchange `createOrder` adds to `orders`. `processCandle` executes them.
+      // So we need to wait for next candle to fill these.
+      // BUT, if we want "Close AND Buy", we are sending 2 orders.
+      // 1. Close (Sell)
+      // 2. Open (Buy) - wait, that's same direction?
+      // Close Long (Sell) -> Open Short (Sell).
+      // Close Short (Buy) -> Open Long (Buy).
+      // So we send 2 orders.
+      // Order 1: Sell X (ReduceOnly)
+      // Order 2: Sell Y (Open)
+      // This works.
     }
   }
 

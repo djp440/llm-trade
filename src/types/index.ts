@@ -12,17 +12,25 @@ export interface OHLC {
 }
 
 export interface TradeSignal {
-  decision: "APPROVE" | "REJECT";
+  decision: "APPROVE" | "REJECT" | "HOLD";
   analysis_step_0_visual?: string;
-  analysis_step_1_market_cycle: string;
-  analysis_step_2_setup: string;
-  analysis_step_3_signal_bar: string;
+  analysis_step_1_market_cycle?: string;
+  analysis_step_2_setup?: string;
+  analysis_step_3_signal_bar?: string;
   reason: string; // Keep for backward compatibility or as a summary
-  action?: "BUY" | "SELL";
-  orderType: "STOP" | "MARKET";
-  entryPrice: number;
-  stopLoss: number;
-  takeProfit: number;
+  action?:
+    | "BUY"
+    | "SELL"
+    | "CLOSE_LONG"
+    | "CLOSE_SHORT"
+    | "CLOSE_LONG_AND_SELL"
+    | "CLOSE_SHORT_AND_BUY"
+    | "NO_ACTION";
+  orderType?: "STOP" | "MARKET";
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  quantity?: number; // Optional quantity override
 }
 
 export interface AlBrooksFeatures {
@@ -57,7 +65,13 @@ export interface OrderRequest {
 
 export interface TradePlan {
   symbol: string;
-  action: "BUY" | "SELL";
+  action:
+    | "BUY"
+    | "SELL"
+    | "CLOSE_LONG"
+    | "CLOSE_SHORT"
+    | "CLOSE_LONG_AND_SELL"
+    | "CLOSE_SHORT_AND_BUY";
   entryOrder: OrderRequest;
   stopLossOrder: OrderRequest;
   takeProfitOrder: OrderRequest;

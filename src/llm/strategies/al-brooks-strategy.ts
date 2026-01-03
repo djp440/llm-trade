@@ -1093,7 +1093,7 @@ Return JSON only.
       };
     }
 
-    const proposedEntry = signal.entryPrice;
+    const proposedEntry = signal.entryPrice ?? 0;
     const existingEntry = pendingOrder.entryPrice;
     const denom = existingEntry > 0 ? existingEntry : 1;
     const relDiff = Math.abs(proposedEntry - existingEntry) / denom;

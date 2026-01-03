@@ -22,6 +22,7 @@ export interface LLMService {
     options?: {
       enableImageAnalysis?: boolean;
       timeframes?: { trading: string; context: string; trend: string };
+      currentPosition?: string;
     }
   ): Promise<TradeSignal>;
 

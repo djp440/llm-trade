@@ -110,6 +110,11 @@ export class TradeExecutor {
       return null;
     }
 
+    if (!signal.action || signal.action === "NO_ACTION") {
+      logger.info(`[交易执行器] ${symbol} 信号为 NO_ACTION，忽略。`);
+      return null;
+    }
+
     const isBuy = signal.action === "BUY";
     const offsetTicks = config.execution.entry_offset_ticks || 1;
 
@@ -132,7 +137,7 @@ export class TradeExecutor {
     // 为突破调整进场价格 (场景 A)
     // 如果是突破，我们可能希望在最高点上方 (买入) 或最低点下方 (卖出) 稍微进入
     // signal.entryPrice 被假定为要突破的“水平”。
-    let adjustedEntryPrice = signal.entryPrice;
+    let adjustedEntryPrice = signal.entryPrice ?? currentPrice;
     if (isBuy) {
       adjustedEntryPrice += tickSize * offsetTicks;
     } else {
@@ -148,12 +153,16 @@ export class TradeExecutor {
     // 场景 A: 挂单 (突破)
     // 买入: 当前 < 进场
     // 卖出: 当前 > 进场
+    // 如果 adjustedEntryPrice 仍未定义 (不可能发生，因为上面的检查)，则回退到 signal.entryPrice
+    const finalEntryPrice =
+      adjustedEntryPrice ?? signal.entryPrice ?? currentPrice;
+
     const isPending = isBuy
-      ? currentPrice < adjustedEntryPrice
-      : currentPrice > adjustedEntryPrice;
+      ? currentPrice < finalEntryPrice
+      : currentPrice > finalEntryPrice;
 
     const referenceEntryPrice = isPending
-      ? adjustedEntryPrice
+      ? finalEntryPrice
       : this.getEstimatedMarketEntryPrice(currentPrice, isBuy);
 
     const formattedStopLoss = this.exchange.priceToPrecision(
@@ -168,8 +177,10 @@ export class TradeExecutor {
     const takeProfitPrice = parseFloat(formattedTakeProfit);
 
     if (
+      stopLossPrice !== 0 &&
+      takeProfitPrice !== 0 &&
       !this.isPriceRelationshipValid(
-        signal.action,
+        signal.action as "BUY" | "SELL",
         referenceEntryPrice,
         stopLossPrice,
         takeProfitPrice
@@ -181,12 +192,26 @@ export class TradeExecutor {
       return null;
     }
 
-    const quantity = this.calculateQuantity(
-      symbol,
-      equity,
-      referenceEntryPrice,
-      stopLossPrice
-    );
+    let quantity: number;
+    if (signal.quantity && signal.quantity > 0) {
+      // 使用信号指定的仓位百分比计算: Value = Equity * (q / 100)
+      const positionValue = equity * (signal.quantity / 100);
+      // Quantity = Value / Price
+      const rawQuantity = positionValue / referenceEntryPrice;
+      quantity = parseFloat(
+        this.exchange.amountToPrecision(symbol, rawQuantity)
+      );
+      logger.info(
+        `[交易执行器] 使用策略指定仓位: ${signal.quantity}% (权益: ${equity}) -> 数量: ${quantity}`
+      );
+    } else {
+      quantity = this.calculateQuantity(
+        symbol,
+        equity,
+        referenceEntryPrice,
+        stopLossPrice
+      );
+    }
 
     if (quantity <= 0) {
       logger.warn(`[交易执行器] ${symbol} 数量计算失败或太小`);
@@ -204,19 +229,23 @@ export class TradeExecutor {
 
     // 将止盈止损直接附加到进场订单参数中 (Bitget 专用)
     if (this.exchange.id === "bitget") {
-      entryOrder.params = {
-        ...entryOrder.params,
-        stopLoss: {
+      entryOrder.params = { ...entryOrder.params };
+
+      if (stopLossPrice > 0) {
+        entryOrder.params.stopLoss = {
           triggerPrice: stopLossPrice,
           price: stopLossPrice,
           type: "mark_price",
-        },
-        takeProfit: {
+        };
+      }
+
+      if (takeProfitPrice > 0) {
+        entryOrder.params.takeProfit = {
           triggerPrice: takeProfitPrice,
           price: takeProfitPrice,
           type: "mark_price",
-        },
-      };
+        };
+      }
     }
 
     if (isPending) {
@@ -285,8 +314,6 @@ export class TradeExecutor {
       const params = entry.params || {};
       let price = entry.price;
 
-      let orderType = entry.type;
-
       // Handle Trigger Price for Stop Orders
       if (entry.type === "stop_market" || entry.type === "stop") {
         if (entry.stopPrice) {
@@ -304,68 +331,34 @@ export class TradeExecutor {
           // If we send 'stop_market' explicitly, some exchanges reject it.
           // We'll rely on triggerPrice to define it as a stop order.
           if (this.exchange.id === "bitget") {
-            orderType = "market";
+            entry.type = "market";
           }
         }
       }
 
-      // Bitget V2 Position Mode Handling & Retry Logic
-      let isHedgeMode = false;
-      let order: Order | null = null;
+      // Bitget V2 Position Mode Handling
+      // 用户指定使用 One-Way 模式 (单向持仓)。
+      // 我们不再尝试检测或适配 Hedge 模式，而是直接假设为 One-Way。
+      // 对于 Bitget One-Way 模式，不需要 tradeSide 参数。
 
-      if (this.exchange.id === "bitget") {
-        try {
-          const mode: any = await this.exchange.fetchPositionMode(entry.symbol);
-          isHedgeMode = mode.hedged;
-        } catch (e) {
-          logger.warn(
-            `[交易执行器] 获取持仓模式失败，默认为单向持仓 (One-Way): ${e}`
-          );
-        }
-      }
+      const orderType =
+        entry.type === "stop_market" && this.exchange.id === "bitget"
+          ? "market"
+          : entry.type;
 
-      // 根据模式准备参数的辅助函数
-      const prepareParams = (modeHedged: boolean) => {
-        const p = { ...params };
-        if (this.exchange.id === "bitget") {
-          if (modeHedged) {
-            p["tradeSide"] = "Open";
-          } else {
-            if (p["tradeSide"]) delete p["tradeSide"];
-          }
-        }
-        return p;
-      };
-
+      let order: Order | undefined;
       try {
-        const p = prepareParams(isHedgeMode);
         order = await this.exchange.createOrder(
           entry.symbol,
           orderType,
           entry.side,
           entry.amount,
           price,
-          p
+          params
         );
       } catch (e: any) {
-        // 如果是 Bitget 错误 40774 (在对冲账户上使用单向参数)，则重试相反模式
-        if (this.exchange.id === "bitget" && e.message.includes("40774")) {
-          logger.warn(
-            `[交易执行器] 订单因模式不匹配而失败 (${isHedgeMode})。正在尝试相反模式...`
-          );
-          isHedgeMode = !isHedgeMode;
-          const p = prepareParams(isHedgeMode);
-          order = await this.exchange.createOrder(
-            entry.symbol,
-            orderType,
-            entry.side,
-            entry.amount,
-            price,
-            p
-          );
-        } else {
-          throw e;
-        }
+        logger.error(`[交易执行器] 下单失败: ${e.message}`);
+        throw e;
       }
 
       if (!order) throw new Error("订单创建意外失败。");
@@ -382,6 +375,67 @@ export class TradeExecutor {
     }
 
     return orders;
+  }
+
+  public async closePosition(
+    symbol: string,
+    side: "long" | "short"
+  ): Promise<Order[]> {
+    try {
+      logger.important(`[交易执行器] 正在尝试平仓 ${symbol} ${side} 头寸...`);
+
+      // 1. 获取持仓
+      // 注意：fetchPositions 可能需要特定的参数或返回所有符号
+      const positions = await this.exchange.fetchPositions([symbol]);
+
+      // 查找对应方向的持仓
+      // CCXT 结构: side is 'long' or 'short'. contracts is absolute size.
+      // 在单向模式下，side 可能是 'long' (如果 quantity > 0) 或 'short' (如果 quantity < 0)
+      const position = positions.find(
+        p =>
+          p.symbol === symbol &&
+          (p.contracts || 0) > 0 &&
+          (p.side === side || (p.side === undefined && side === "long")) // Fallback logic
+      );
+
+      if (!position || (position.contracts || 0) <= 0) {
+        logger.info(
+          `[交易执行器] 未找到 ${symbol} 的 ${side} 持仓，无需平仓。`
+        );
+        return [];
+      }
+
+      logger.important(
+        `[交易执行器] 发现 ${side} 持仓: ${position.contracts} 张/币。正在执行市价全平...`
+      );
+
+      // 2. 准备平仓订单
+      const orderSide = side === "long" ? "sell" : "buy";
+      const amount = position.contracts || 0;
+      const orderType = "market";
+      const params: any = { reduceOnly: true };
+
+      // Bitget One-Way 模式不需要 tradeSide，只需 reduceOnly 即可 (甚至 reduceOnly 也不是必须的，如果是反手单则不需要)
+      // 但为了安全起见，单纯平仓使用 reduceOnly。
+
+      // 3. 下单
+      const order = await this.exchange.createOrder(
+        symbol,
+        orderType,
+        orderSide,
+        amount,
+        undefined,
+        params
+      );
+
+      logger.tradeClose(
+        `[交易执行器] ${symbol} ${side} 持仓已平仓。订单ID: ${order.id}`
+      );
+      return [order];
+    } catch (error: any) {
+      logger.error(`[交易执行器] 平仓失败: ${error.message}`);
+      throw error;
+    }
   }
 
   private isPriceRelationshipValid(

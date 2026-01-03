@@ -159,50 +159,144 @@ export class VirtualExchange {
     // Remove from orders
     this.cancelOrder(order.id);
 
-    // Create Position
-    // Extract TP/SL from params if they exist (standardize this structure)
-    // The TradePlan usually passes SL/TP as separate orders or params.
-    // For simplicity in this backtester, we assume the logic that calls createOrder
-    // will also manage SL/TP orders OR we can attach them to the position.
-    // But wait, the user logic says: "Virtual exchange... setting fees...".
-    // "Process position PnL, TP/SL checks".
+    // One-Way Mode Logic: Check for existing position
+    // We assume only one position per symbol allowed (One-Way)
+    const existingPosIndex = this.positions.findIndex(
+      p => p.symbol === order.symbol
+    );
 
-    // The TradePlan in `src/types` has `stopLossOrder` and `takeProfitOrder`.
-    // When the main `BacktestEngine` receives a signal, it creates a STOP entry.
-    // Does it also create TP/SL orders immediately?
-    // Usually, in `TradeManager`, we send OCO or separate orders after entry.
-    // But here, for simplicity, we can store TP/SL on the position itself if the order has them.
-    // Or we can let the Engine create TP/SL orders after it sees a position is opened.
-    // BUT the requirement says: "if entry and exit in same candle".
-    // This implies we need TP/SL info AT THE MOMENT of entry.
-
-    // So, I will add `takeProfit` and `stopLoss` fields to `VirtualOrder` params or implicit expectation.
-    // Let's assume `order.params` contains `stopLoss` and `takeProfit` prices.
-
-    const stopLoss = order.stopPrice ? order.params?.stopLoss : undefined;
-    const takeProfit = order.params?.takeProfit;
-
-    const position: VirtualPosition = {
-      id: Math.random().toString(36).substring(2, 15),
-      symbol: order.symbol,
-      side: order.side === "buy" ? "long" : "short",
-      entryPrice: price,
-      quantity: order.amount,
-      entryTime: this.currentCandle ? this.currentCandle.timestamp : Date.now(),
-      stopLoss: stopLoss,
-      takeProfit: takeProfit,
-      unrealizedPnL: 0,
-    };
-
-    this.positions.push(position);
-
-    // Deduct fees (simplified)
-    const feeRate = 0.0006; // 0.05%
+    const feeRate = 0.0006; // 0.06%
     const fee = price * order.amount * feeRate;
     this.account.balance -= fee;
 
-    // IMMEDIATE CHECK: Does this same candle hit TP/SL?
-    this.updatePosition(position, candle);
+    if (existingPosIndex >= 0) {
+      const existingPos = this.positions[existingPosIndex];
+      const isSameSide =
+        (order.side === "buy" && existingPos.side === "long") ||
+        (order.side === "sell" && existingPos.side === "short");
+
+      if (isSameSide) {
+        // Increase Position
+        const totalQty = existingPos.quantity + order.amount;
+        // Avg Entry Price = (OldVal + NewVal) / TotalQty
+        const oldVal = existingPos.entryPrice * existingPos.quantity;
+        const newVal = price * order.amount;
+        existingPos.entryPrice = (oldVal + newVal) / totalQty;
+        existingPos.quantity = totalQty;
+
+        // Update TP/SL if provided in new order?
+        // Usually we keep old or update if specified. Let's update if provided.
+        if (order.params?.stopLoss)
+          existingPos.stopLoss = order.params.stopLoss;
+        if (order.params?.takeProfit)
+          existingPos.takeProfit = order.params.takeProfit;
+
+        logger.info(
+          `[VirtualExchange] Increased Position: ${existingPos.side} NewQty: ${existingPos.quantity}`
+        );
+      } else {
+        // Opposite Side -> Reduce / Close / Flip
+        if (order.amount === existingPos.quantity) {
+          // Full Close
+          this.closePosition(
+            existingPos,
+            price,
+            candle.timestamp,
+            "Market Close"
+          );
+        } else if (order.amount < existingPos.quantity) {
+          // Partial Close
+          // Realized PnL on closed portion
+          const closedQty = order.amount;
+          let pnl = 0;
+          if (existingPos.side === "long") {
+            pnl = (price - existingPos.entryPrice) * closedQty;
+          } else {
+            pnl = (existingPos.entryPrice - price) * closedQty;
+          }
+          // No fee here, already deducted above for the order execution
+
+          this.account.balance += pnl;
+
+          // Record Trade (Partial)
+          this.tradeHistory.push({
+            id: existingPos.id + "_part",
+            entryTime: existingPos.entryTime,
+            exitTime: candle.timestamp,
+            side: existingPos.side,
+            entryPrice: existingPos.entryPrice,
+            exitPrice: price,
+            quantity: closedQty,
+            realizedPnL: pnl,
+            returnPct: (pnl / (existingPos.entryPrice * closedQty)) * 100,
+            reason: "Partial Close",
+          });
+
+          existingPos.quantity -= closedQty;
+          logger.info(
+            `[VirtualExchange] Reduced Position: ${existingPos.side} RemQty: ${existingPos.quantity}`
+          );
+        } else {
+          // Flip (Close + Open New)
+          // 1. Close existing
+          this.closePosition(
+            existingPos,
+            price,
+            candle.timestamp,
+            "Market Reverse (Flip)"
+          );
+
+          // 2. Open remainder
+          const remainingQty = order.amount - existingPos.quantity;
+          const newSide = order.side === "buy" ? "long" : "short";
+
+          // Need to add fee for the remainder?
+          // We deducted fee for FULL amount already. That covers both the close part and open part.
+
+          const newPos: VirtualPosition = {
+            id: Math.random().toString(36).substring(2, 15),
+            symbol: order.symbol,
+            side: newSide as "long" | "short",
+            entryPrice: price,
+            quantity: remainingQty,
+            entryTime: candle.timestamp,
+            stopLoss: order.params?.stopLoss,
+            takeProfit: order.params?.takeProfit,
+            unrealizedPnL: 0,
+          };
+          this.positions.push(newPos);
+          logger.info(
+            `[VirtualExchange] Flipped Position: Now ${newSide} Qty: ${remainingQty}`
+          );
+
+          // Immediate check for the new position
+          this.updatePosition(newPos, candle);
+        }
+      }
+    } else {
+      // New Position
+      const stopLoss = order.stopPrice ? order.params?.stopLoss : undefined;
+      const takeProfit = order.params?.takeProfit;
+
+      const position: VirtualPosition = {
+        id: Math.random().toString(36).substring(2, 15),
+        symbol: order.symbol,
+        side: order.side === "buy" ? "long" : "short",
+        entryPrice: price,
+        quantity: order.amount,
+        entryTime: this.currentCandle
+          ? this.currentCandle.timestamp
+          : Date.now(),
+        stopLoss: stopLoss,
+        takeProfit: takeProfit,
+        unrealizedPnL: 0,
+      };
+
+      this.positions.push(position);
+
+      // IMMEDIATE CHECK: Does this same candle hit TP/SL?
+      this.updatePosition(position, candle);
+    }
   }
 
   private updatePosition(position: VirtualPosition, candle: OHLC) {

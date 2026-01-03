@@ -238,8 +238,39 @@ export class TradeManager {
     if (signal.decision === "APPROVE") {
       // 4. 执行逻辑
       const currentPrice = await this.marketData.getCurrentPrice();
+
+      // --- 处理平仓逻辑 ---
+      if (
+        signal.action === "CLOSE_LONG" ||
+        signal.action === "CLOSE_LONG_AND_SELL"
+      ) {
+        await this.executor.closePosition(this.symbol, "long");
+      }
+      if (
+        signal.action === "CLOSE_SHORT" ||
+        signal.action === "CLOSE_SHORT_AND_BUY"
+      ) {
+        await this.executor.closePosition(this.symbol, "short");
+      }
+
+      // 如果仅仅是平仓信号，则结束流程
+      if (signal.action === "CLOSE_LONG" || signal.action === "CLOSE_SHORT") {
+        logger.important(`[交易管理器] 已执行纯平仓信号: ${signal.action}`);
+        this.state = TradeState.SEARCHING; // 重置为搜索状态
+        return;
+      }
+
+      // --- 处理开仓逻辑 (包含反手) ---
+      // 将复合动作映射为基础动作 BUY/SELL
+      let effectiveAction = signal.action;
+      if (signal.action === "CLOSE_LONG_AND_SELL") effectiveAction = "SELL";
+      if (signal.action === "CLOSE_SHORT_AND_BUY") effectiveAction = "BUY";
+
+      // 创建适配后的信号对象用于生成计划
+      const openSignal: any = { ...signal, action: effectiveAction };
+
       const plan = this.executor.generateTradePlan(
-        signal,
+        openSignal,
         currentPrice,
         equity,
         this.symbol
@@ -439,7 +470,7 @@ export class TradeManager {
           equity,
           config.strategy.risk_per_trade,
           {
-            action: this.pendingTradePlan.action,
+            action: this.pendingTradePlan.action as "BUY" | "SELL",
             entryPrice:
               this.pendingTradePlan.entryOrder.price ||
               this.pendingTradePlan.entryOrder.stopPrice ||
